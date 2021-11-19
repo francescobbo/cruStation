@@ -327,6 +327,22 @@ impl Gpu {
     // +3
     fn gp0_20_mono_triangle(&mut self) {
         // println!("[GPU] GP0(20): mono_triangle");
+
+        let vertices = [
+            Position::parse(self.buffer[1]),
+            Position::parse(self.buffer[2]),
+            Position::parse(self.buffer[3]),
+        ];
+
+        let colors = [
+            Color::parse(self.buffer[0]),
+            Color::parse(self.buffer[0]),
+            Color::parse(self.buffer[0]),
+        ];
+
+        if let Some(renderer) = &mut self.renderer {
+            renderer.push_triangle(vertices, colors);
+        }
     }
 
     // 21 garbage

@@ -809,8 +809,68 @@ impl Bios {
             0x49 => {
                 println!("PrintInstalledDevices");
             }
+            0x4A => {
+                println!("InitCard");
+            }
+            0x4B => {
+                println!("StartCard");
+            }
+            0x4C => {
+                println!("StopCard");
+            }
+            0x4D => {
+                println!("_card_info_subfunc");
+            }
+            0x4E => {
+                println!("write_card_sector");
+            }
+            0x4F => {
+                println!("read_card_sector");
+            }
+            0x50 => {
+                println!("allow_new_card");
+            }
+            0x51 => {
+                println!("Krom2RawAdd");
+            }
+            0x52 => {
+                println!("SystemError");
+            }
+            0x53 => {
+                println!("Krom2Offset");
+            }
+            0x54 => {
+                println!("GetLastError");
+            }
+            0x55 => {
+                println!("GetLastFileError");
+            }
+            0x56 => {
+                println!("GetC0Table");
+            }
+            0x57 => {
+                println!("GetB0Table");
+            }
+            0x58 => {
+                println!("get_bu_callback_port");
+            }
+            0x59 => {
+                println!("testdevice");
+            }
+            0x5A => {
+                println!("SystemError");
+            }
             0x5B => {
                 println!("ChangeClearPad");
+            }
+            0x5C => {
+                println!("get_card_status");
+            }
+            0x5D => {
+                println!("wait_card_status");
+            }
+            0x5E => {
+                println!("N/A");
             }
             _ => {
                 println!("Unhandled syscall B({:02x})", cpu.regs[9] & 0xff);

@@ -33,7 +33,7 @@ use crate::hw::gte::algebra::*;
     cop2r58    | FU16  | H                | Projection plane distance.       ;cnt26
     cop2r59    | S16   | DQA              | Depth queing parameter A (coeff) ;cnt27
     cop2r60    | 32    | DQB              | Depth queing parameter B (offset);cnt28
-    cop2r61-62 | 2xS16 | ZSF3,ZSF4       | Average Z scale factors          ;cnt29-30
+    cop2r61-62 | 2xS16 | ZSF3,ZSF4        | Average Z scale factors          ;cnt29-30
     cop2r63    | U20   | FLAG             | Returns any calculation errors   ;cnt31
 */
 
@@ -96,7 +96,10 @@ pub struct Gte {
     mac: Vector3,
 
     rotation: Matrix3,
-
+    translation: Vector3,
+    light: Matrix3,
+    background_color: Vector3,
+    light_color: Matrix3,
     far_color: Vector3,
 
     regs: [u32; 64],
@@ -122,7 +125,10 @@ impl Gte {
             regs: [0; 64],
 
             rotation: Matrix3::new(),
-
+            translation: Vector3::new(),
+            light: Matrix3::new(),
+            background_color: Vector3::new(),
+            light_color: Matrix3::new(),
             far_color: Vector3::new(),
 
             xyz_fifo: vec![0; 3],
@@ -181,6 +187,51 @@ impl Gte {
                 rt31 | (rt32 << 16)
             }
             36 => self.rotation[2].z_u32s(),
+            40 => {
+                let lt11 = self.light[0].x_u32();
+                let lt12 = self.light[0].y_u32();
+                lt11 | (lt12 << 16)
+            }
+            41 => {
+                let lt13 = self.light[0].z_u32();
+                let lt21 = self.light[1].x_u32();
+                lt13 | (lt21 << 16)
+            }
+            42 => {
+                let lt22 = self.light[1].y_u32();
+                let lt23 = self.light[1].z_u32();
+                lt22 | (lt23 << 16)
+            }
+            43 => {
+                let lt31 = self.light[2].x_u32();
+                let lt32 = self.light[2].y_u32();
+                lt31 | (lt32 << 16)
+            }
+            44 => self.light[2].z_u32s(),
+            45 => self.background_color.0 as u32,
+            46 => self.background_color.1 as u32,
+            47 => self.background_color.2 as u32,
+            48 => {
+                let lc11 = self.light_color[0].x_u32();
+                let lc12 = self.light_color[0].y_u32();
+                lc11 | (lc12 << 16)
+            }
+            49 => {
+                let lc13 = self.light_color[0].z_u32();
+                let lc21 = self.light_color[1].x_u32();
+                lc13 | (lc21 << 16)
+            }
+            50 => {
+                let lc22 = self.light_color[1].y_u32();
+                let lc23 = self.light_color[1].z_u32();
+                lc22 | (lc23 << 16)
+            }
+            51 => {
+                let lc31 = self.light_color[2].x_u32();
+                let lc32 = self.light_color[2].y_u32();
+                lc31 | (lc32 << 16)
+            }
+            52 => self.light_color[2].z_u32s(),
             53 => self.far_color.0 as u32,
             54 => self.far_color.1 as u32,
             55 => self.far_color.2 as u32,
@@ -295,6 +346,73 @@ impl Gte {
                 let rt33 = value & 0xffff;
                 self.rotation[2][Z] = rt33 as i16 as i32;
             }
+            /* Light matrix */
+            40 => {
+                let lt11 = value & 0xffff;
+                let lt12 = value >> 16;
+                self.light[0][X] = lt11 as i16 as i32;
+                self.light[0][Y] = lt12 as i16 as i32;
+            }
+            41 => {
+                let lt13 = value & 0xffff;
+                let lt21 = value >> 16;
+                self.light[0][Z] = lt13 as i16 as i32;
+                self.light[1][X] = lt21 as i16 as i32;
+            }
+            42 => {
+                let lt22 = value & 0xffff;
+                let lt23 = value >> 16;
+                self.light[1][Y] = lt22 as i16 as i32;
+                self.light[1][Z] = lt23 as i16 as i32;
+            }
+            43 => {
+                let lt31 = value & 0xffff;
+                let lt32 = value >> 16;
+                self.light[2][X] = lt31 as i16 as i32;
+                self.light[2][Y] = lt32 as i16 as i32;
+            }
+            44 => {
+                let lt33 = value & 0xffff;
+                self.light[2][Z] = lt33 as i16 as i32;
+            }            
+            45 => {
+                self.background_color.0 = value as i32;
+            }
+            46 => {
+                self.background_color.1 = value as i32;
+            }
+            47 => {
+                self.background_color.2 = value as i32;
+            }
+            /* Light color matrix */
+            48 => {
+                let lc11 = value & 0xffff;
+                let lc12 = value >> 16;
+                self.light_color[0][X] = lc11 as i16 as i32;
+                self.light_color[0][Y] = lc12 as i16 as i32;
+            }
+            49 => {
+                let lc13 = value & 0xffff;
+                let lc21 = value >> 16;
+                self.light_color[0][Z] = lc13 as i16 as i32;
+                self.light_color[1][X] = lc21 as i16 as i32;
+            }
+            50 => {
+                let lc22 = value & 0xffff;
+                let lc23 = value >> 16;
+                self.light_color[1][Y] = lc22 as i16 as i32;
+                self.light_color[1][Z] = lc23 as i16 as i32;
+            }
+            51 => {
+                let lc31 = value & 0xffff;
+                let lc32 = value >> 16;
+                self.light_color[2][X] = lc31 as i16 as i32;
+                self.light_color[2][Y] = lc32 as i16 as i32;
+            }
+            52 => {
+                let lc33 = value & 0xffff;
+                self.light_color[2][Z] = lc33 as i16 as i32;
+            }    
             53 => {
                 self.far_color.0 = value as i32;
             }
@@ -328,6 +446,7 @@ impl Gte {
             0x06 => self.nclip(),
             0x0c => self.op(),
             0x10 => self.dpcs(),
+            0x13 => self.ncds(),
             _ => {
                 println!("[GTE] Unhandled {:08x}", op);
             }
@@ -343,6 +462,8 @@ impl Gte {
     }
 
     pub fn rtps(&mut self) {
+        println!("RTPS");
+
         let trx = self.regs[37] as u64;
         let _try = self.regs[38] as u64;
         let trz = self.regs[39] as u64;
@@ -406,6 +527,8 @@ impl Gte {
     }
 
     pub fn nclip(&mut self) {
+        println!("NCLIP");
+
         let sx0 = (self.xyz_fifo[0] & 0xffff) as i16 as i64;
         let sy0 = (self.xyz_fifo[0] >> 16) as i16 as i64;
 
@@ -428,6 +551,8 @@ impl Gte {
     }
 
     pub fn op(&mut self) {
+        println!("OP");
+
         self.mac = self.ir.cross(&self.rotation.diagonal());
         if self.op_shift() != 0 {
             self.mac = self.mac.shift_fraction();
@@ -438,9 +563,7 @@ impl Gte {
     }
 
     pub fn dpcs(&mut self) {
-        println!("DPCS\nRGBC: {:08x}", self.regs[6]);
-        println!("FC: {:?}", self.far_color);
-        println!("IR0: {}", self.ir0);
+        println!("DPCS");
 
         let r = (self.regs[6] & 0xff) as i32;
         let g = ((self.regs[6] >> 8) & 0xff) as i32;
@@ -456,6 +579,42 @@ impl Gte {
 
         self.ir = self.mac;
         self.saturate_ir(self.op_lm() != 0);
+    }
+
+    pub fn ncds(&mut self) {
+        println!("NCDS({})", self.op_shift() != 0);
+
+        self.mac = self.light * self.v0;
+        if self.op_shift() != 0 {
+            self.mac = self.mac.shift_fraction();
+        }
+        self.ir = self.mac;
+
+        self.mac = (self.background_color * 0x1000) + (self.light_color * self.ir);
+        if self.op_shift() != 0 {
+            self.mac = self.mac.shift_fraction();
+        }
+        self.ir = self.mac;
+
+        self.mac = Vector3(
+            self.ir.0 * ((self.regs[6] & 0xff) as i32) << 4,
+            self.ir.1 * (((self.regs[6] >> 8) & 0xff) as i32) << 4,
+            self.ir.2 * (((self.regs[6] >> 16) & 0xff) as i32) << 4
+        );
+
+        self.mac = self.mac + (self.far_color - self.mac) * self.ir0.into();
+        if self.op_shift() != 0 {
+            self.mac = self.mac.shift_fraction();
+        }
+
+        self.ir = self.mac;
+
+        // self.color_fifo.push(Color(
+        //     self.mac.0 / 16,
+        //     self.mac.1 / 16,
+        //     self.mac.2 / 16,
+        //     self.regs[6] >> 24
+        // ))
     }
 
     fn saturate_ir(&mut self, lm: bool) {

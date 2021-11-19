@@ -135,7 +135,7 @@ impl BusDevice for Cdrom {
                 // TODO: When reading further bytes: The buffer is padded with 00h's to the end of the 16-bytes, and does then restart at the first response byte (that, without receiving a new response, so it'll always return the same 16 bytes, until a new command/response has been sent/received).
             }
             2 => {
-                println!("[CDR] Trying to read cd data");
+                // println!("[CDR] Trying to read cd data");
                 0
             }
             3 => {

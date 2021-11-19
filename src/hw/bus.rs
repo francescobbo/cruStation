@@ -453,7 +453,6 @@ impl Bus {
                                     self.ram.borrow_mut().write::<u32>(addr, value);
                                     addr = addr.wrapping_add(4);
                                     remaining_words -= 1;
-                                    println!("writing from CDROM to {:08x}", addr);
                                 }
                                 Direction::FromRam => {
                                     panic!("Writing to CDROM? Not happening");

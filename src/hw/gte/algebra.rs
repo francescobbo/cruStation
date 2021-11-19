@@ -148,6 +148,7 @@ impl ops::Mul<i32> for Vector3 {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct Matrix3 {
     f: [Vector3; 3],
 }
@@ -175,5 +176,17 @@ impl ops::Index<usize> for Matrix3 {
 impl ops::IndexMut<usize> for Matrix3 {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.f[index]
+    }
+}
+
+impl ops::Mul<Vector3> for Matrix3 {
+    type Output = Vector3;
+
+    fn mul(self, vec: Vector3) -> Self::Output {
+        Vector3(
+            self[0][X] * vec[X] + self[0][Y] * vec[Y] + self[0][Z] * vec[Z],
+            self[1][X] * vec[X] + self[1][Y] * vec[Y] + self[1][Z] * vec[Z],
+            self[2][X] * vec[X] + self[2][Y] * vec[Y] + self[2][Z] * vec[Z]
+        )
     }
 }
