@@ -10,7 +10,7 @@ pub enum Axis {
 use Axis::*;
 
 #[derive(Copy, Clone, Debug)]
-pub struct Vector3(pub i32, pub i32, pub i32);
+pub struct Vector3(pub i64, pub i64, pub i64);
 
 impl Vector3 {
     pub fn new() -> Vector3 {
@@ -29,11 +29,23 @@ impl Vector3 {
         Vector3(self.0 >> 12, self.1 >> 12, self.2 >> 12)
     }
 
+    pub fn dot(&self, other: &Vector3) -> i64 {
+        self.0 * other.0 + self.1 * other.1 + self.2 * other.2
+    }
+
     pub fn cross(&self, other: &Vector3) -> Vector3 {
         Vector3(
-            self.z_i32() * other.y_i32() - self.y_i32() * other.z_i32(),
-            self.x_i32() * other.z_i32() - self.z_i32() * other.x_i32(),
-            self.y_i32() * other.x_i32() - self.x_i32() * other.y_i32(),
+            self.2 * other.1 - self.1 * other.2,
+            self.0 * other.2 - self.2 * other.0,
+            self.1 * other.0 - self.0 * other.1,
+        )
+    }
+    
+    pub fn truncate(&self) -> Vector3 {
+        Vector3(
+            self.0 as i32 as i64,
+            self.1 as i32 as i64,
+            self.2 as i32 as i64,
         )
     }
 
@@ -99,7 +111,7 @@ impl Vector3 {
 }
 
 impl ops::Index<Axis> for Vector3 {
-    type Output = i32;
+    type Output = i64;
 
     fn index(&self, index: Axis) -> &Self::Output {
         match index {
@@ -132,18 +144,58 @@ impl ops::Sub for Vector3 {
     type Output = Vector3;
 
     fn sub(self, other: Vector3) -> Self::Output {
-        Vector3(self.0 - other.0, self.1 - other.1, self.2 - other.2)
+        Vector3(
+            self.0 - other.0,
+            self.1 - other.1,
+            self.2 - other.2
+        )
     }
 }
 
-impl ops::Mul<i32> for Vector3 {
+impl ops::Mul<Vector3> for Vector3 {
     type Output = Vector3;
 
-    fn mul(self, scalar: i32) -> Self::Output {
+    fn mul(self, other: Vector3) -> Self::Output {
+        Vector3(
+            (Wrapping(self.0) * Wrapping(other.0)).0,
+            (Wrapping(self.1) * Wrapping(other.1)).0,
+            (Wrapping(self.2) * Wrapping(other.2)).0,
+        )
+    }
+}
+
+impl ops::Mul<i64> for Vector3 {
+    type Output = Vector3;
+
+    fn mul(self, scalar: i64) -> Self::Output {
         Vector3(
             (Wrapping(self.0) * Wrapping(scalar)).0,
             (Wrapping(self.1) * Wrapping(scalar)).0,
             (Wrapping(self.2) * Wrapping(scalar)).0,
+        )
+    }
+}
+
+impl ops::Div<i64> for Vector3 {
+    type Output = Vector3;
+
+    fn div(self, scalar: i64) -> Self::Output {
+        Vector3(
+            self.0 / scalar,
+            self.1 / scalar,
+            self.2 / scalar,
+        )
+    }
+}
+
+impl ops::Shl<u32> for Vector3 {
+    type Output = Self;
+
+    fn shl(self, scalar: u32) -> Self::Output {
+        Vector3(
+            self.0 << scalar,
+            self.1 << scalar,
+            self.2 << scalar,
         )
     }
 }

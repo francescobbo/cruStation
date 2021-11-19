@@ -149,8 +149,13 @@ impl Gpu {
             self.gpustat.set_even_odd(!self.gpustat.even_odd());
         }
 
+        // println!("VSync");
         self.gpustat.set_irq(true);
         self.bus.upgrade().unwrap().borrow().send_irq(0);
+
+        if let Some(renderer) = &mut self.renderer {
+            renderer.draw();
+        }
     }
 
     pub fn process_gp0(&mut self, command: u32) {
@@ -282,7 +287,7 @@ impl Gpu {
                 | 0x79
                 | 0x7b
                 | 0xf0..=0xff => {
-                    panic!("[GPU] GP0({:02x}): unknown/garbage", opcode);
+                    println!("[GPU] GP0({:02x}): unknown/garbage", opcode);
                 }
             }
 
@@ -326,7 +331,7 @@ impl Gpu {
 
     // +3
     fn gp0_20_mono_triangle(&mut self) {
-        // println!("[GPU] GP0(20): mono_triangle");
+        println!("[GPU] GP0(20): mono_triangle");
 
         let vertices = [
             Position::parse(self.buffer[1]),
