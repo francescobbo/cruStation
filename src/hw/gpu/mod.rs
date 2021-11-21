@@ -7,7 +7,7 @@ use std::rc::Weak;
 use bitfield::bitfield;
 use renderer::{Color, Position, Renderer};
 
-use crate::hw::bus::{Bus, BusDevice, PsxEventType, R3000Type};
+use crate::hw::bus::{Bus, BusDevice, PsxEventType};
 
 bitfield! {
     struct GpuStat(u32);
@@ -89,12 +89,12 @@ impl Gpu {
     }
 
     pub fn load_renderer(&mut self) {
-        self.renderer = Some(Renderer::new());
+        // self.renderer = Some(Renderer::new());
     }
 }
 
 impl BusDevice for Gpu {
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         if !self.set {
             let cpu_freq = 33868800;
             let vblank_freq = 60;
@@ -107,7 +107,7 @@ impl BusDevice for Gpu {
             self.set = true;
         }
 
-        if std::mem::size_of::<T>() != 4 {
+        if S != 4 {
             // println!("Unhandled {}-bytes GPU read", std::mem::size_of::<T>());
         }
 
@@ -118,8 +118,8 @@ impl BusDevice for Gpu {
         }
     }
 
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32 {
-        if std::mem::size_of::<T>() != 4 {
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+        if S != 4 {
             // println!("Unhandled {}-bytes GPU read", std::mem::size_of::<T>());
             return 0;
         }

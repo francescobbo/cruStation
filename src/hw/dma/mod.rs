@@ -1,5 +1,5 @@
 // use crate::hw::vec::ByteSerialized;
-use crate::hw::bus::{BusDevice, R3000Type};
+use crate::hw::bus::{BusDevice};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Direction {
@@ -158,8 +158,8 @@ impl Dma {
 }
 
 impl BusDevice for Dma {
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32 {
-        if std::mem::size_of::<T>() != 4 {
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+        if S != 4 {
             // println!("Unhandled {}-bytes DMA read", std::mem::size_of::<T>());
             return 0;
         }
@@ -167,7 +167,7 @@ impl BusDevice for Dma {
         match addr {
             0x00..=0x6f => {
                 let channel = (addr >> 4) as usize;
-                self.channels[channel].read::<T>(addr & 0xf)
+                self.channels[channel].read::<S>(addr & 0xf)
             }
             0x70 => self.dpcr,
             0x74 => self.dicr,
@@ -177,7 +177,7 @@ impl BusDevice for Dma {
         }
     }
 
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         // if std::mem::size_of::<T>() != 4 {
         //     panic!("Unhandled {}-bytes DMA write", std::mem::size_of::<T>());
         // }
@@ -185,7 +185,7 @@ impl BusDevice for Dma {
         match addr {
             0x00..=0x6f => {
                 let channel = (addr >> 4) as usize;
-                self.channels[channel].write::<T>(addr & 0xf, value);
+                self.channels[channel].write::<S>(addr & 0xf, value);
             }
             0x70 => {
                 self.dpcr = value;
@@ -272,7 +272,7 @@ impl Channel {
 }
 
 impl BusDevice for Channel {
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32 {
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         match addr {
             0x00 => self.base,
             0x04 => self.read_block_control(),
@@ -288,7 +288,7 @@ impl BusDevice for Channel {
         }
     }
 
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         // println!("[DMA] write {:08x} to {:08x}", value, addr);
         match addr {
             0x00 => self.set_base(value),

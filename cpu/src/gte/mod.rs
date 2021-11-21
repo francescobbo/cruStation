@@ -95,7 +95,10 @@ struct Color {
 impl Color {
     fn new() -> Color {
         Color {
-            r: 0, g: 0, b: 0, code: 0
+            r: 0,
+            g: 0,
+            b: 0,
+            code: 0,
         }
     }
 
@@ -109,7 +112,10 @@ impl Color {
     }
 
     fn as_u32(&self) -> u32 {
-        self.r as u32 | ((self.g as u32) << 8) | ((self.b as u32) << 16) | ((self.code as u32) << 24)
+        self.r as u32
+            | ((self.g as u32) << 8)
+            | ((self.b as u32) << 16)
+            | ((self.code as u32) << 24)
     }
 
     fn as_vec(&self) -> Vector3 {
@@ -411,11 +417,8 @@ impl Gte {
             }
             15 => {
                 self.xy_fifo.remove(0);
-                self.xy_fifo.push(Vector3(
-                    value as i16 as i64,
-                    (value >> 16) as i16 as i64,
-                    0
-                ));
+                self.xy_fifo
+                    .push(Vector3(value as i16 as i64, (value >> 16) as i16 as i64, 0));
             }
             16 => {
                 self.z_fifo[0] = value as u16;
@@ -462,7 +465,9 @@ impl Gte {
                 self.ir[Y] = (green * 0x80) as i16 as i64;
                 self.ir[Z] = (blue * 0x80) as i16 as i64;
             }
-            30 => { self.lzcs = value; }
+            30 => {
+                self.lzcs = value;
+            }
             29 | 31 => { /* read only */ }
             /* Rotation matrix */
             32 => {
@@ -530,7 +535,7 @@ impl Gte {
             44 => {
                 let lt33 = value & 0xffff;
                 self.light[2][Z] = lt33 as i16 as i64;
-            }            
+            }
             45 => {
                 self.background_color.0 = value as i64;
             }
@@ -568,7 +573,7 @@ impl Gte {
             52 => {
                 let lc33 = value & 0xffff;
                 self.light_color[2][Z] = lc33 as i16 as i64;
-            }    
+            }
             53 => {
                 self.far_color.0 = value as i64;
             }
@@ -606,7 +611,7 @@ impl Gte {
                     self.flags |= 1 << 31;
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -624,7 +629,9 @@ impl Gte {
             0x2d => self.avsz3(),
             0x2e => self.avsz4(),
             0x30 => self.rtpt(),
-            0x3f => { println!("Unimplemented 0x3f GTE"); },
+            0x3f => {
+                println!("Unimplemented 0x3f GTE");
+            }
             _ => {
                 panic!("[GTE] Unhandled {:08x}", op);
             }
@@ -656,7 +663,7 @@ impl Gte {
 
         let first = (self.translation << 12) + dots;
         self.set_mac_ir(first, self.op_lm() != 0);
-    
+
         let new_z = ((first.2 >> 12) as i32).clamp(0, 0xffff) as u16;
         self.z_fifo.remove(0);
         self.z_fifo.push(new_z);
@@ -675,7 +682,7 @@ impl Gte {
         self.xy_fifo[2] = Vector3(
             x.clamp(-0x400, 0x3ff) as i32 as i64,
             y.clamp(-0x400, 0x3ff) as i32 as i64,
-            0
+            0,
         );
 
         if finalize {
@@ -737,7 +744,8 @@ impl Gte {
             value.shift_fraction()
         } else {
             value
-        }.truncate();
+        }
+        .truncate();
 
         self.set_ir(self.mac, lm_flag);
     }
@@ -773,19 +781,16 @@ impl Gte {
             r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
             g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
             b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code
+            code: self.color.code,
         });
     }
 
     pub fn ncs(&mut self) {
-        self.set_mac_ir(
-            self.light * self.v0,
-            self.op_lm() != 0
-        );
+        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
 
         self.set_mac_ir(
             (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0
+            self.op_lm() != 0,
         );
 
         self.color_fifo.remove(0);
@@ -793,56 +798,47 @@ impl Gte {
             r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
             g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
             b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code
+            code: self.color.code,
         });
     }
 
     pub fn nccs(&mut self) {
-        self.set_mac_ir(
-            self.light * self.v0,
-            self.op_lm() != 0
-        );
+        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
 
         self.set_mac_ir(
             (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0
+            self.op_lm() != 0,
         );
 
-        self.set_mac_ir(
-            (self.ir * self.color.as_vec()) << 4,
-            self.op_lm() != 0
-        );
+        self.set_mac_ir((self.ir * self.color.as_vec()) << 4, self.op_lm() != 0);
 
         self.color_fifo.remove(0);
         self.color_fifo.push(Color {
             r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
             g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
             b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code
+            code: self.color.code,
         });
     }
 
     pub fn ncds(&mut self) {
-        self.set_mac_ir(
-            self.light * self.v0,
-            self.op_lm() != 0
-        );
+        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
 
         self.set_mac_ir(
             (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0
+            self.op_lm() != 0,
         );
 
         let orig_ir = self.ir;
 
         self.set_mac_ir(
             (self.far_color << 12) - (self.color.as_vec() << 4) * self.ir,
-            false
+            false,
         );
 
         self.set_mac_ir(
             (self.color.as_vec() << 4) * orig_ir + self.ir * (self.ir0 as i64),
-            self.op_lm() != 0
+            self.op_lm() != 0,
         );
 
         self.color_fifo.remove(0);
@@ -850,7 +846,7 @@ impl Gte {
             r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
             g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
             b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code
+            code: self.color.code,
         });
     }
 
@@ -882,18 +878,18 @@ impl Gte {
     pub fn avsz3(&mut self) {
         let value = self.zsf3 as i64;
         let sum = (self.z_fifo[1] as i64)
-                    .wrapping_add(self.z_fifo[2] as i64)
-                    .wrapping_add(self.z_fifo[3] as i64);
+            .wrapping_add(self.z_fifo[2] as i64)
+            .wrapping_add(self.z_fifo[3] as i64);
         self.mac0 = value * sum;
         self.otz = (value >> 12).clamp(0, 0xffff) as u16;
     }
-    
+
     pub fn avsz4(&mut self) {
         let value = self.zsf4 as i64;
         let sum = (self.z_fifo[0] as i64)
-                    .wrapping_add(self.z_fifo[1] as i64)
-                    .wrapping_add(self.z_fifo[2] as i64)
-                    .wrapping_add(self.z_fifo[3] as i64);
+            .wrapping_add(self.z_fifo[1] as i64)
+            .wrapping_add(self.z_fifo[2] as i64)
+            .wrapping_add(self.z_fifo[3] as i64);
         self.mac0 = value * sum;
         self.otz = (value >> 12).clamp(0, 0xffff) as u16;
     }

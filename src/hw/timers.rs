@@ -1,4 +1,4 @@
-use crate::hw::bus::{Bus, BusDevice, R3000Type};
+use crate::hw::bus::{Bus, BusDevice};
 use std::cell::RefCell;
 use std::rc::Weak;
 
@@ -128,7 +128,7 @@ impl Timers {
 }
 
 impl BusDevice for Timers {
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32 {
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         let n = (addr >> 4) as usize;
 
         if n > 2 {
@@ -159,7 +159,7 @@ impl BusDevice for Timers {
         val
     }
 
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         let n = (addr >> 4) as usize;
 
         if n > 2 {

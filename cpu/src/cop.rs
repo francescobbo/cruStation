@@ -1,4 +1,4 @@
-use crate::hw::cpu::{Cpu, Exception, PsxBus};
+use crate::{Cpu, Exception, PsxBus};
 
 impl<T: PsxBus> Cpu<T> {
     pub fn interrupt(&mut self) {
@@ -167,7 +167,7 @@ impl<T: PsxBus> Cpu<T> {
         }
 
         let address = self.ls_address();
-        let value = self.load::<u32>(address);
+        let value = self.load::<4>(address);
 
         self.gte.write_reg(self.current_instruction.rt(), value);
     }
@@ -179,7 +179,7 @@ impl<T: PsxBus> Cpu<T> {
 
         let address = self.ls_address();
         let value = self.gte.read_reg(self.current_instruction.rt());
-        self.store::<u32>(address, value);
+        self.store::<4>(address, value);
     }
 
     pub fn ins_cop3(&mut self) {

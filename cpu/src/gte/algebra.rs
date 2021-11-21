@@ -40,7 +40,7 @@ impl Vector3 {
             self.1 * other.0 - self.0 * other.1,
         )
     }
-    
+
     pub fn truncate(&self) -> Vector3 {
         Vector3(
             self.0 as i32 as i64,
@@ -144,11 +144,7 @@ impl ops::Sub for Vector3 {
     type Output = Vector3;
 
     fn sub(self, other: Vector3) -> Self::Output {
-        Vector3(
-            self.0 - other.0,
-            self.1 - other.1,
-            self.2 - other.2
-        )
+        Vector3(self.0 - other.0, self.1 - other.1, self.2 - other.2)
     }
 }
 
@@ -180,11 +176,7 @@ impl ops::Div<i64> for Vector3 {
     type Output = Vector3;
 
     fn div(self, scalar: i64) -> Self::Output {
-        Vector3(
-            self.0 / scalar,
-            self.1 / scalar,
-            self.2 / scalar,
-        )
+        Vector3(self.0 / scalar, self.1 / scalar, self.2 / scalar)
     }
 }
 
@@ -192,11 +184,7 @@ impl ops::Shl<u32> for Vector3 {
     type Output = Self;
 
     fn shl(self, scalar: u32) -> Self::Output {
-        Vector3(
-            self.0 << scalar,
-            self.1 << scalar,
-            self.2 << scalar,
-        )
+        Vector3(self.0 << scalar, self.1 << scalar, self.2 << scalar)
     }
 }
 
@@ -238,7 +226,7 @@ impl ops::Mul<Vector3> for Matrix3 {
         Vector3(
             self[0][X] * vec[X] + self[0][Y] * vec[Y] + self[0][Z] * vec[Z],
             self[1][X] * vec[X] + self[1][Y] * vec[Y] + self[1][Z] * vec[Z],
-            self[2][X] * vec[X] + self[2][Y] * vec[Y] + self[2][Z] * vec[Z]
+            self[2][X] * vec[X] + self[2][Y] * vec[Y] + self[2][Z] * vec[Z],
         )
     }
 }

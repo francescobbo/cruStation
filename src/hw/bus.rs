@@ -3,7 +3,7 @@ use crate::hw::vec::ByteSerialized;
 use std::fs::File;
 use std::sync::mpsc;
 
-use crate::hw::cpu::{Cpu, CpuCommand, PsxBus};
+use crustationcpu::{Cpu, CpuCommand, PsxBus};
 use crate::hw::dma::{ChannelLink, Direction, SyncMode};
 use crate::hw::{Bios, Cdrom, Dma, Gpu, JoypadMemorycard, Ram, Spu, Timers};
 
@@ -13,14 +13,9 @@ use std::rc::Rc;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-pub trait R3000Type {}
-impl R3000Type for u8 {}
-impl R3000Type for u16 {}
-impl R3000Type for u32 {}
-
 pub trait BusDevice {
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32;
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32);
+    fn read<const S: u32>(&mut self, addr: u32) -> u32;
+    fn write<const S: u32>(&mut self, addr: u32, value: u32);
 }
 
 pub struct Bus {
@@ -123,8 +118,8 @@ impl Bus {
         self.bios.borrow_mut().load(&mut file);
     }
 
-    pub fn write_io<T: R3000Type>(&self, addr: u32, value: u32) {
-        self.io.borrow_mut().write::<T>(addr as u32, value);
+    pub fn write_io<const S: u32>(&self, addr: u32, value: u32) {
+        self.io.borrow_mut().write::<S>(addr as u32, value);
 
         match addr {
             0x1000 => {
@@ -264,21 +259,21 @@ impl PsxBus for Bus {
         self.process_events();
     }
 
-    fn read<T: R3000Type>(&self, addr: u32) -> u32 {
+    fn read<const S: u32>(&self, addr: u32) -> u32 {
         let addr = Bus::strip_region(addr);
 
         match addr {
             0x0000_0000..=0x001f_ffff => {
                 self.add_cycles(4);
-                self.ram.borrow_mut().read::<T>(addr)
+                self.ram.borrow_mut().read::<S>(addr)
             }
             0x1f00_0000..=0x1f7f_ffff => {
-                self.add_cycles(6 * std::mem::size_of::<T>() as u64);
+                self.add_cycles(6 * S as u64);
                 0xffffffff
             }
             0x1f80_1040..=0x1f80_104f => {
                 self.add_cycles(2);
-                self.joy_mc.borrow_mut().read::<T>(addr - 0x1f80_1040)
+                self.joy_mc.borrow_mut().read::<S>(addr - 0x1f80_1040)
             }
             0x1f80_1050..=0x1f80_105f => {
                 // SIO
@@ -292,19 +287,19 @@ impl PsxBus for Bus {
             }
             0x1f80_1080..=0x1f80_10f4 => {
                 self.add_cycles(2);
-                self.dma.borrow_mut().read::<T>(addr - 0x1f80_1080)
+                self.dma.borrow_mut().read::<S>(addr - 0x1f80_1080)
             }
             0x1f80_1100..=0x1f80_112f => {
                 self.add_cycles(2);
-                self.timers.borrow_mut().read::<T>(addr - 0x1f80_1100)
+                self.timers.borrow_mut().read::<S>(addr - 0x1f80_1100)
             }
             0x1f80_1800..=0x1f80_1803 => {
-                self.add_cycles(6 * std::mem::size_of::<T>() as u64 + 1);
-                self.cdrom.borrow_mut().read::<T>(addr - 0x1f80_1800)
+                self.add_cycles(6 * S as u64 + 1);
+                self.cdrom.borrow_mut().read::<S>(addr - 0x1f80_1800)
             }
             0x1f80_1810..=0x1f80_1814 => {
                 self.add_cycles(2);
-                self.gpu.borrow_mut().read::<T>(addr - 0x1f80_1810)
+                self.gpu.borrow_mut().read::<S>(addr - 0x1f80_1810)
             }
             0x1f80_1820..=0x1f80_1824 => {
                 // MDEC
@@ -313,21 +308,21 @@ impl PsxBus for Bus {
             }
             0x1f80_1c00..=0x1f80_1fff => {
                 self.add_cycles(17);
-                self.spu.borrow_mut().read::<T>(addr - 0x1f80_1c00)
+                self.spu.borrow_mut().read::<S>(addr - 0x1f80_1c00)
             }
             0x1f80_2000..=0x1f80_2080 => {
                 // EXP2 has some weeeeeird timings
                 // 10 cycles for 1 byte
                 // 25 for 2 bytes
                 // 55 for 4 bytes
-                self.add_cycles((15 * std::mem::size_of::<T>() - 5) as u64);
+                self.add_cycles((15 * S - 5) as u64);
                 0xffffffff
             }
             0x1fa0_0000 => {
                 // EXP3 is not sane either
                 // 5 cycles for 1/2 bytes
                 // 9 cycles for 4 bytes
-                if std::mem::size_of::<T>() == 4 {
+                if S == 4 {
                     self.add_cycles(9);
                 } else {
                     self.add_cycles(5);
@@ -336,8 +331,8 @@ impl PsxBus for Bus {
                 0xffffffff
             }
             0x1fc0_0000..=0x1fc8_0000 => {
-                (*self.total_cycles.borrow_mut()) += 6 * std::mem::size_of::<T>() as u64;
-                self.bios.borrow_mut().read::<T>(addr & 0xf_ffff)
+                (*self.total_cycles.borrow_mut()) += 6 * S as u64;
+                self.bios.borrow_mut().read::<S>(addr & 0xf_ffff)
             }
             _ => {
                 panic!("Read in memory hole at {:08x}", addr);
@@ -345,48 +340,48 @@ impl PsxBus for Bus {
         }
     }
 
-    fn write<T: R3000Type>(&self, addr: u32, value: u32) {
+    fn write<const S: u32>(&self, addr: u32, value: u32) {
         match addr {
             0x0000_0000..=0x0020_0000 => {
-                self.ram.borrow_mut().write::<T>(addr, value);
+                self.ram.borrow_mut().write::<S>(addr, value);
             }
             0x1f80_1040..=0x1f80_104f => {
                 self.joy_mc
                     .borrow_mut()
-                    .write::<T>(addr - 0x1f80_1040, value);
+                    .write::<S>(addr - 0x1f80_1040, value);
             }
             0x1f80_1050..=0x1f80_105f => {
                 // SIO: TODO
             }
             0x1f80_1080..=0x1f80_10f4 => {
-                self.dma.borrow_mut().write::<T>(addr - 0x1f80_1080, value);
+                self.dma.borrow_mut().write::<S>(addr - 0x1f80_1080, value);
                 self.handle_dma_write();
             }
             0x1f80_1100..=0x1f80_112f => {
                 self.timers
                     .borrow_mut()
-                    .write::<T>(addr - 0x1f80_1100, value);
+                    .write::<S>(addr - 0x1f80_1100, value);
             }
             0x1f80_1800..=0x1f80_1803 => {
                 self.cdrom
                     .borrow_mut()
-                    .write::<T>(addr - 0x1f80_1800, value);
+                    .write::<S>(addr - 0x1f80_1800, value);
             }
             0x1f80_1810..=0x1f80_1814 => {
-                self.gpu.borrow_mut().write::<T>(addr - 0x1f80_1810, value);
+                self.gpu.borrow_mut().write::<S>(addr - 0x1f80_1810, value);
             }
             0x1f80_1820..=0x1f80_1824 => {
                 // MDEC: TODO
             }
             0x1f80_1c00..=0x1f80_1fff => {
-                self.spu.borrow_mut().write::<T>(addr - 0x1f80_1c00, value);
+                self.spu.borrow_mut().write::<S>(addr - 0x1f80_1c00, value);
             }
             0x1f80_2000..=0x1f80_207f => {
                 // EXP2: ignore
                 // However at 2041, there's the POST 7seg display
             }
             0x1f80_1000..=0x1f80_1020 | 0x1f80_1060 => {
-                self.write_io::<T>(addr & 0xffff, value);
+                self.write_io::<S>(addr & 0xffff, value);
             }
             0x1fa0_0000 => {
                 // EXP3: ignore
@@ -424,7 +419,7 @@ impl Bus {
                                         1 => 0xff_ffff,
                                         _ => addr.wrapping_add(step as u32) & 0x1f_fffc,
                                     };
-                                    self.ram.borrow_mut().write::<u32>(addr, word);
+                                    self.ram.borrow_mut().write::<4>(addr, word);
                                 }
                             }
                             addr = addr.wrapping_add(step as u32) & 0x1f_fffc;
@@ -441,8 +436,8 @@ impl Bus {
                         while remaining_words > 0 {
                             match active_channel.direction() {
                                 Direction::ToRam => {
-                                    let value = cdrom.read::<u8>(2) | cdrom.read::<u8>(2) << 8 | cdrom.read::<u8>(2) << 16 | cdrom.read::<u8>(2) << 24;
-                                    self.ram.borrow_mut().write::<u32>(addr, value);
+                                    let value = cdrom.read::<1>(2) | cdrom.read::<1>(2) << 8 | cdrom.read::<1>(2) << 16 | cdrom.read::<1>(2) << 24;
+                                    self.ram.borrow_mut().write::<4>(addr, value);
                                     addr = addr.wrapping_add(4);
                                     remaining_words -= 1;
                                 }
@@ -463,7 +458,7 @@ impl Bus {
                             loop {
                                 match active_channel.direction() {
                                     Direction::FromRam => {
-                                        let header = self.ram.borrow_mut().read::<u32>(addr);
+                                        let header = self.ram.borrow_mut().read::<4>(addr);
                                         let word_count = header >> 24;
                  
                                         // if word_count > 0 {
@@ -473,7 +468,7 @@ impl Bus {
                  
                                         for _ in 0..word_count {
                                             addr = addr.wrapping_add(step as u32);
-                                            let cmd = self.ram.borrow_mut().read::<u32>(addr);
+                                            let cmd = self.ram.borrow_mut().read::<4>(addr);
                                             self.gpu.borrow_mut().process_gp0(cmd);
                                         }
 
@@ -499,7 +494,7 @@ impl Bus {
                         for _ in 0..(blocks * block_size) as usize {
                             match active_channel.direction() {
                                 Direction::FromRam => {
-                                    let value = self.ram.borrow_mut().read::<u32>(addr);
+                                    let value = self.ram.borrow_mut().read::<4>(addr);
                                     self.gpu.borrow_mut().process_gp0(value);
                                     addr = addr.wrapping_add(step as u32);
                                 }
@@ -550,7 +545,7 @@ impl Bus {
         let mut ram = self.ram.borrow_mut();
 
         for b in code.iter() {
-            ram.write::<u8>(addr, *b as u32);
+            ram.write::<1>(addr, *b as u32);
             addr = (addr + 1) & 0x3f_ffff;
         }
 

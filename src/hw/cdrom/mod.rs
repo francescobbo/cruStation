@@ -1,4 +1,4 @@
-use crate::hw::bus::{Bus, BusDevice, PsxEventType, R3000Type};
+use crate::hw::bus::{Bus, BusDevice, PsxEventType};
 use bitfield::bitfield;
 use ringbuffer::{AllocRingBuffer, RingBuffer, RingBufferExt, RingBufferRead, RingBufferWrite};
 
@@ -79,10 +79,10 @@ impl Cdrom {
 
 // When reading from the CDROM controller, reads of sizes larger than 1 byte are
 // copied to the remaining bytes
-fn grow_to<T: R3000Type>(value: u8) -> u32 {
+fn grow_to<const S: u32>(value: u8) -> u32 {
     let value = value as u32;
 
-    match std::mem::size_of::<T>() {
+    match S {
         1 => value,
         2 => value | (value << 8),
         4 => value | (value << 8) | (value << 16) | (value << 24),
@@ -91,7 +91,7 @@ fn grow_to<T: R3000Type>(value: u8) -> u32 {
 }
 
 impl BusDevice for Cdrom {
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32 {
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         // print!("[CDR] Read {:04x}: ", addr);
 
         let val = match addr {
@@ -158,18 +158,18 @@ impl BusDevice for Cdrom {
         };
 
         // println!("{:02x}: ", val);
-        grow_to::<T>(val)
+        grow_to::<S>(val)
     }
 
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         println!(
             "[CDR] Write to reg {:04x} {:08x} of size {}",
             addr,
             value,
-            std::mem::size_of::<T>()
+            S
         );
 
-        if std::mem::size_of::<T>() != 1 {
+        if S != 1 {
             // println!("[CDR] Invalid write");
         }
 

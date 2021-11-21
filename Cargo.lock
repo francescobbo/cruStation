@@ -56,6 +56,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpu"
+version = "0.1.0"
+dependencies = [
+ "bitfield",
+]
+
+[[package]]
 name = "ctrlc"
 version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -231,6 +238,7 @@ version = "0.1.0"
 dependencies = [
  "bitfield",
  "byteorder",
+ "cpu",
  "ctrlc",
  "gl",
  "lazy_static",

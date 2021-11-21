@@ -1,4 +1,4 @@
-use crate::hw::cpu::{Cpu, Exception, PsxBus};
+use crate::{Cpu, Exception, PsxBus};
 
 impl<T: PsxBus> Cpu<T> {
     #[inline(always)]
@@ -259,17 +259,14 @@ impl<T: PsxBus> Cpu<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hw::cpu::R3000Type;
-    use std::cell::RefCell;
-    use std::rc::Rc;
 
     struct NullBus {}
 
     impl PsxBus for NullBus {
-        fn read<T: R3000Type>(&self, _: u32) -> u32 {
+        fn read<T>(&self, _: u32) -> u32 {
             0
         }
-        fn write<T: R3000Type>(&self, _: u32, _: u32) {}
+        fn write<T>(&self, _: u32, _: u32) {}
         fn update_cycles(&self, _: u64) {}
     }
 

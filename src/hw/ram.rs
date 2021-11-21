@@ -1,4 +1,4 @@
-use crate::hw::bus::{BusDevice, R3000Type};
+use crate::hw::bus::{BusDevice};
 use crate::hw::vec::ByteSerialized;
 
 pub struct Ram {
@@ -14,11 +14,11 @@ impl Ram {
 }
 
 impl BusDevice for Ram {
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32 {
-        self.memory.read::<T>(addr)
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+        self.memory.read::<S>(addr)
     }
 
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
-        self.memory.write::<T>(addr, value);
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+        self.memory.write::<S>(addr, value);
     }
 }

@@ -1,4 +1,4 @@
-use crate::hw::bus::{BusDevice, R3000Type};
+use crate::hw::bus::{BusDevice};
 
 #[derive(Copy, Clone, Debug)]
 enum ControllerState {
@@ -49,7 +49,7 @@ impl JoypadMemorycard {
 }
 
 impl BusDevice for JoypadMemorycard {
-    fn read<T: R3000Type>(&mut self, addr: u32) -> u32 {
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         println!("[JOY] Read from reg {:04x}", addr);
         match addr {
             0x00 => self.rx_data as u32,
@@ -59,7 +59,7 @@ impl BusDevice for JoypadMemorycard {
         }
     }
 
-    fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         println!("[JOY] Write to reg {:04x} {:08x}", addr, value);
 
         // Writes to JOY are truncated to 16 bits

@@ -8,6 +8,7 @@ mod gte;
 mod icache;
 mod instruction;
 mod load_store;
+mod scratchpad;
 
 use std::sync::mpsc;
 // use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,14 +18,11 @@ use cop0::{Cop0, Exception};
 use gte::Gte;
 use icache::InstructionCache;
 use instruction::Instruction;
-
-// Don't like using crate here. CPU should be standalone.
-use crate::hw::{Bios};
-use crate::hw::bus::R3000Type;
+use scratchpad::Scratchpad;
 
 pub trait PsxBus {
-    fn read<T: R3000Type>(&self, address: u32) -> u32;
-    fn write<T: R3000Type>(&self, address: u32, value: u32);
+    fn read<const T: u32>(&self, address: u32) -> u32;
+    fn write<const T: u32>(&self, address: u32, value: u32);
     fn update_cycles(&self, cycles: u64);
 }
 
@@ -47,7 +45,7 @@ pub struct Cpu<T: PsxBus> {
 
     pub cop0: Cop0,
     pub icache: InstructionCache,
-    pub dcache: Vec<u8>,
+    dcache: Scratchpad,
 
     pub current_instruction: Instruction,
     pub branch_delay_slot: Option<(u32, u32)>,
@@ -57,15 +55,12 @@ pub struct Cpu<T: PsxBus> {
     pub bus: *const T,
     pub gte: Gte,
 
-    pub debugger: debug::Debugger,
-
     biu_cc: BIUCacheControl,
     i_stat: u32,
     i_mask: u32,
 
     command_rx: mpsc::Receiver<CpuCommand>,
     pub command_tx: mpsc::Sender<CpuCommand>,
-
     // ips: u64,
     // ips_start: u128,
 }
@@ -78,7 +73,7 @@ impl<T: PsxBus> Cpu<T> {
             bus: std::ptr::null(),
             cop0: Cop0::new(),
             icache: InstructionCache::new(),
-            dcache: vec![0; 0x400],
+            dcache: Scratchpad::new(),
 
             pc: 0xbfc0_0000,
             regs: [0; 32],
@@ -103,10 +98,8 @@ impl<T: PsxBus> Cpu<T> {
             i_stat: 0,
             i_mask: 0,
 
-            debugger: debug::Debugger::new(),
             command_rx: rx,
             command_tx: tx,
-
             // ips: 0,
             // ips_start: SystemTime::now()
             //     .duration_since(UNIX_EPOCH)
@@ -127,14 +120,14 @@ impl<T: PsxBus> Cpu<T> {
         // }
 
         if self.pc >= 0xa000_0000 {
-            return self.load::<u32>(self.pc);
+            return self.load::<4>(self.pc);
         }
 
         match self.icache.load(self.pc) {
             None => {
                 // Fetch and store the current instruction
                 let ins: u32;
-                ins = self.load::<u32>(self.pc);
+                ins = self.load::<4>(self.pc);
                 self.icache.store(self.pc, ins);
 
                 // Fetch up to 4 words (from current PC up to next 16-byte
@@ -142,7 +135,7 @@ impl<T: PsxBus> Cpu<T> {
                 // ever be used).
                 let mut next = self.pc.wrapping_add(4);
                 while next & 0xf != 0 {
-                    let ins = self.load::<u32>(next);
+                    let ins = self.load::<4>(next);
                     self.icache.store(next, ins);
 
                     next = next.wrapping_add(4);
@@ -155,8 +148,6 @@ impl<T: PsxBus> Cpu<T> {
     }
 
     pub fn run(&mut self) {
-        debug::Debugger::enter(self);
-
         loop {
             self.cycle();
         }
@@ -177,26 +168,26 @@ impl<T: PsxBus> Cpu<T> {
             match command {
                 CpuCommand::Break => {
                     println!();
-                    debug::Debugger::enter(self);
+                    // debug::Debugger::enter(self);
                 }
                 CpuCommand::Irq(n) => {
                     self.request_interrupt(n);
                 }
             }
         }
-        
-        if debug::Debugger::should_break(self) {
-            debug::Debugger::enter(self);
-        }
+
+        // if debug::Debugger::should_break(self) {
+        //     debug::Debugger::enter(self);
+        // }
 
         self.step();
 
-        match self.pc() {
-            0xa0 => Bios::call_a(self),
-            0xb0 => Bios::call_b(self),
-            0xc0 => Bios::call_c(self),
-            _ => {}
-        }
+        // match self.pc() {
+        //     0xa0 => Bios::call_a(self),
+        //     0xb0 => Bios::call_b(self),
+        //     0xc0 => Bios::call_c(self),
+        //     _ => {}
+        // }
 
         if self.cop0.should_interrupt() {
             self.interrupt();
@@ -233,7 +224,6 @@ impl<T: PsxBus> Cpu<T> {
             self.current_instruction.0 = self.fetch_at_pc();
             self.pc = self.pc.wrapping_add(4);
         }
-
 
         match self.current_instruction.opcode() {
             0x00 => match self.current_instruction.special_opcode() {

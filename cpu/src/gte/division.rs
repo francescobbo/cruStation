@@ -24,7 +24,7 @@ pub fn division(dividend: u16, divisor: u16) -> (u32, bool) {
     let shift = divisor.leading_zeros();
     let dividend = (dividend as u64) << shift;
     let divisor = divisor << shift;
-    
+
     let reciprocal = reciprocal(divisor);
     let result = ((dividend * reciprocal) + 0x8000) >> 16;
 
@@ -39,6 +39,6 @@ fn reciprocal(divisor: u16) -> u64 {
     let index = (((divisor & 0x7fff) + 0x40) >> 7) as usize;
     let factor = (UNR_TABLE[index] as u64 + 0x101) as i64;
     let tmp = (((divisor as i64) * -factor) + 0x80) >> 8;
-    
+
     (((factor * (0x20000 + tmp)) + 0x80) >> 8) as u64
 }

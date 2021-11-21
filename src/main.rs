@@ -3,7 +3,7 @@
 mod hw;
 
 use hw::bus::Bus;
-use hw::cpu::CpuCommand;
+use crustationcpu::CpuCommand;
 use std::cell::RefCell;
 use std::rc::Rc;
 

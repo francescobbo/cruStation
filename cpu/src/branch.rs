@@ -1,4 +1,4 @@
-use crate::hw::cpu::{Cpu, PsxBus};
+use crate::{Cpu, PsxBus};
 
 impl<T: PsxBus> Cpu<T> {
     #[inline(always)]
