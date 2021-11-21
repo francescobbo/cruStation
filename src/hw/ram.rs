@@ -19,9 +19,6 @@ impl BusDevice for Ram {
     }
 
     fn write<T: R3000Type>(&mut self, addr: u32, value: u32) {
-        if addr == 0x000589c0 {
-            println!("[RAM] Writing {:08x} to {:08x}", value, addr);
-        }
         self.memory.write::<T>(addr, value);
     }
 }

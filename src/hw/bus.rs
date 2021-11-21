@@ -403,9 +403,7 @@ impl PsxBus for Bus {
 
 impl Bus {
     fn handle_dma_write(&self) {
-        println!("DMA?");
         if let Some(active_channel) = self.dma.borrow_mut().active_channel() {
-            println!("DMA! {:?}", active_channel);
             let step = active_channel.step();
             let mut addr = active_channel.base();
 
@@ -415,7 +413,7 @@ impl Bus {
                 SyncMode::Immediate => match active_channel.link() {
                     ChannelLink::Otc => {
                         let mut remaining_words = block_size;
-                        println!("[DMA6] OTC -> RAM @ 0x{:08x}, block, count: 0x{:04x}\n", addr, remaining_words);
+                        // println!("[DMA6] OTC -> RAM @ 0x{:08x}, block, count: 0x{:04x}\n", addr, remaining_words);
                         while remaining_words > 0 {
                             match active_channel.direction() {
                                 Direction::FromRam => {
@@ -426,7 +424,6 @@ impl Bus {
                                         1 => 0xff_ffff,
                                         _ => addr.wrapping_add(step as u32) & 0x1f_fffc,
                                     };
-                                    println!("[OTC] Writing {:08x} to {:08x}", word, addr);
                                     self.ram.borrow_mut().write::<u32>(addr, word);
                                 }
                             }
@@ -470,8 +467,8 @@ impl Bus {
                                         let word_count = header >> 24;
                  
                                         // if word_count > 0 {
-                                            println!("[DMA2] GPU <- RAM @ 0x{:08x}, count: {}, nextAddr: 0x{:08x}",
-                                            addr, word_count, header);
+                                        //     println!("[DMA2] GPU <- RAM @ 0x{:08x}, count: {}, nextAddr: 0x{:08x}",
+                                        //     addr, word_count, header);
                                         // }
                  
                                         for _ in 0..word_count {

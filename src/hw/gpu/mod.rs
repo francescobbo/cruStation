@@ -159,7 +159,7 @@ impl Gpu {
     }
 
     pub fn process_gp0(&mut self, command: u32) {
-        println!("[GP0] {:08x}", command);
+        // println!("[GP0] {:08x}", command);
 
         self.buffer.push(command);
 

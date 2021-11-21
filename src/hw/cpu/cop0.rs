@@ -158,8 +158,8 @@ impl Cop0 {
         let mut regs = [0; 16];
         regs[BDAM] = 0xffff_ffff;
         regs[BPCM] = 0xffff_ffff;
-        regs[STATUS] = 1 << 22;
-        regs[PRID] = 2;
+        regs[STATUS] = 0x0040_0000;
+        regs[PRID] = 0x0000_0002;
 
         Cop0 {
             regs,
