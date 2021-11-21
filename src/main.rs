@@ -3,6 +3,7 @@
 mod hw;
 
 use hw::bus::Bus;
+use hw::cpu::CpuCommand;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -11,10 +12,10 @@ fn main() {
     let bus = bus_rc.borrow();
     let cpu = bus.cpu.borrow_mut();
 
-    let tx = bus.debug_tx.as_ref().unwrap().clone();
+    let cpu_tx = bus.cpu_tx.clone();
 
     ctrlc::set_handler(move || {
-        tx.send(true).unwrap();
+        cpu_tx.send(CpuCommand::Break).unwrap();
     })
     .expect("Error setting Ctrl-C handler");
 

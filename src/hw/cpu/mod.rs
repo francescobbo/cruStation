@@ -1,10 +1,3 @@
-use std::sync::mpsc;
-
-use crate::hw::cpu::cop0::{Cop0, Exception};
-use crate::hw::{Bios};
-
-use bitfield::bitfield;
-
 mod arith;
 mod biu;
 mod branch;
@@ -13,15 +6,20 @@ mod cop0;
 mod debug;
 mod gte;
 mod icache;
+mod instruction;
 mod load_store;
 
-use gte::Gte;
-use biu::BIUCacheControl;
-use icache::InstructionCache;
-
+use std::sync::mpsc;
 // use std::time::{SystemTime, UNIX_EPOCH};
 
-// Don't like using a bus::Thing here.
+use biu::BIUCacheControl;
+use cop0::{Cop0, Exception};
+use gte::Gte;
+use icache::InstructionCache;
+use instruction::Instruction;
+
+// Don't like using crate here. CPU should be standalone.
+use crate::hw::{Bios};
 use crate::hw::bus::R3000Type;
 
 pub trait PsxBus {
@@ -30,34 +28,15 @@ pub trait PsxBus {
     fn update_cycles(&self, cycles: u64);
 }
 
+pub enum CpuCommand {
+    Break,
+    Irq(u32),
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct LoadDelaySlot {
     register: Option<u32>,
     value: u32,
-}
-
-bitfield! {
-    pub struct Instruction(u32);
-    impl Debug;
-
-    #[inline]
-    pub special_opcode, _: 5, 0;
-    #[inline]
-    pub opcode, _: 31, 26;
-    #[inline]
-    pub rs, _: 25, 21;
-    #[inline]
-    pub rt, _: 20, 16;
-    #[inline]
-    pub rd, _: 15, 11;
-    #[inline]
-    pub imm16, _: 15, 0;
-    #[inline]
-    pub i16, simm16, _: 15, 0;
-    #[inline]
-    pub imm5, _: 10, 6;
-    #[inline]
-    pub imm26, _: 25, 0;
 }
 
 pub struct Cpu<T: PsxBus> {
@@ -84,8 +63,8 @@ pub struct Cpu<T: PsxBus> {
     i_stat: u32,
     i_mask: u32,
 
-    ctrl_ch: mpsc::Receiver<bool>,
-    irq_ch: mpsc::Receiver<u32>,
+    command_rx: mpsc::Receiver<CpuCommand>,
+    pub command_tx: mpsc::Sender<CpuCommand>,
 
     // ips: u64,
     // ips_start: u128,
@@ -93,8 +72,7 @@ pub struct Cpu<T: PsxBus> {
 
 impl<T: PsxBus> Cpu<T> {
     pub fn new() -> Cpu<T> {
-        let (_, debug_rx) = mpsc::channel();
-        let (_, irq_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
 
         Cpu {
             bus: std::ptr::null(),
@@ -126,8 +104,8 @@ impl<T: PsxBus> Cpu<T> {
             i_mask: 0,
 
             debugger: debug::Debugger::new(),
-            ctrl_ch: debug_rx,
-            irq_ch: irq_rx,
+            command_rx: rx,
+            command_tx: tx,
 
             // ips: 0,
             // ips_start: SystemTime::now()
@@ -141,20 +119,7 @@ impl<T: PsxBus> Cpu<T> {
         self.bus = bus as *const T;
     }
 
-    pub fn new_channel(&mut self) -> mpsc::Sender<bool> {
-        let (tx, rx) = mpsc::channel();
-        self.ctrl_ch = rx;
-
-        tx
-    }
-
-    pub fn new_irq_channel(&mut self) -> mpsc::Sender<u32> {
-        let (tx, rx) = mpsc::channel();
-        self.irq_ch = rx;
-
-        tx
-    }
-
+    #[inline(always)]
     pub fn fetch_at_pc(&mut self) -> u32 {
         // Uncomment for hardware-faithful implementation
         // if !self.biu_cc.is1() {
@@ -208,11 +173,19 @@ impl<T: PsxBus> Cpu<T> {
     }
 
     pub fn cycle(&mut self) {
-        if self.ctrl_ch.try_recv().is_ok() {
-            println!();
-            debug::Debugger::enter(self);
-            // self.debugger.stepping = true;
-        } else if debug::Debugger::should_break(self) {
+        if let Ok(command) = self.command_rx.try_recv() {
+            match command {
+                CpuCommand::Break => {
+                    println!();
+                    debug::Debugger::enter(self);
+                }
+                CpuCommand::Irq(n) => {
+                    self.request_interrupt(n);
+                }
+            }
+        }
+        
+        if debug::Debugger::should_break(self) {
             debug::Debugger::enter(self);
         }
 
@@ -225,10 +198,6 @@ impl<T: PsxBus> Cpu<T> {
             _ => {}
         }
 
-        if let Ok(irq) = self.irq_ch.try_recv() {
-            self.request_interrupt(irq);
-        }
-
         if self.cop0.should_interrupt() {
             self.interrupt();
         }
@@ -238,6 +207,7 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
+    #[inline(always)]
     pub fn pc(&self) -> u32 {
         if let Some((pc, _)) = self.branch_delay_slot {
             pc
@@ -246,6 +216,7 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
+    #[inline(always)]
     pub fn step(&mut self) {
         if let Some((_pc, ins)) = self.branch_delay_slot {
             self.in_delay = true;
@@ -357,6 +328,7 @@ impl<T: PsxBus> Cpu<T> {
         self.load_delays();
     }
 
+    #[inline(always)]
     fn load_delays(&mut self) {
         if let Some(r) = self.load_delay_slot[0].register {
             self.regs[r as usize] = self.load_delay_slot[0].value;
@@ -371,6 +343,7 @@ impl<T: PsxBus> Cpu<T> {
         self.check_interrupts();
     }
 
+    #[inline(always)]
     pub fn check_interrupts(&mut self) {
         let stat = self.i_stat;
         let mask = self.i_mask;

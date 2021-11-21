@@ -3,7 +3,7 @@ use crate::hw::vec::ByteSerialized;
 use std::fs::File;
 use std::sync::mpsc;
 
-use crate::hw::cpu::{Cpu, PsxBus};
+use crate::hw::cpu::{Cpu, CpuCommand, PsxBus};
 use crate::hw::dma::{ChannelLink, Direction, SyncMode};
 use crate::hw::{Bios, Cdrom, Dma, Gpu, JoypadMemorycard, Ram, Spu, Timers};
 
@@ -25,8 +25,7 @@ pub trait BusDevice {
 
 pub struct Bus {
     pub cpu: RefCell<Cpu<Bus>>,
-    pub debug_tx: Option<mpsc::Sender<bool>>,
-    pub irq_tx: Option<mpsc::Sender<u32>>,
+    pub cpu_tx: mpsc::Sender<CpuCommand>,
 
     pub total_cycles: RefCell<u64>,
 
@@ -71,8 +70,7 @@ impl PartialOrd for PsxEvent {
 impl Bus {
     pub fn new() -> Bus {
         let cpu = RefCell::new(Cpu::new());
-        let debug_tx = Some(cpu.borrow_mut().new_channel());
-        let irq_tx = Some(cpu.borrow_mut().new_irq_channel());
+        let cpu_tx = cpu.borrow().command_tx.clone();
 
         Bus {
             total_cycles: RefCell::new(0),
@@ -89,8 +87,7 @@ impl Bus {
             joy_mc: RefCell::new(JoypadMemorycard::new()),
 
             cpu,
-            irq_tx,
-            debug_tx,
+            cpu_tx,
 
             events: RefCell::new(BinaryHeap::new()),
         }
@@ -249,9 +246,7 @@ impl Bus {
             panic!("[BUS] Invalid IRQ number");
         }
 
-        if let Some(tx) = &self.irq_tx {
-            tx.send(irq_num).unwrap();
-        }
+        self.cpu_tx.send(CpuCommand::Irq(irq_num)).unwrap();
     }
 
     #[inline(always)]
