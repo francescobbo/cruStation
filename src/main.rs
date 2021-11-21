@@ -20,7 +20,7 @@ fn main() {
 
     drop(cpu);
 
-    bus.load_rom("bios/PSXONPSP660.BIN");
+    bus.load_rom("bios/SCPH7002.BIN");
     bus.link(bus_rc.clone());
 
     drop(bus);

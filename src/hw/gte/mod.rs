@@ -2,6 +2,8 @@ mod algebra;
 
 // use std::num::Wrapping;
 
+mod division;
+
 use crate::hw::gte::algebra::Axis::{X, Y, Z};
 use crate::hw::gte::algebra::*;
 
@@ -141,7 +143,7 @@ pub struct Gte {
     // r12-15
     xy_fifo: Vec<Vector3>,
     // r16-19
-    z_fifo: Vec<i16>,
+    z_fifo: Vec<u16>,
     // r20-22
     color_fifo: Vec<Color>,
     // r23 unused?
@@ -221,7 +223,7 @@ impl Gte {
     }
 
     pub fn read_reg(&mut self, index: u32) -> u32 {
-        match index {
+        let value = match index {
             0 => self.v0.x_u32() | (self.v0.y_u32() << 16),
             1 => self.v0.z_u32s(),
             2 => self.v1.x_u32() | (self.v1.y_u32() << 16),
@@ -237,10 +239,10 @@ impl Gte {
             12 => self.xy_fifo[0].x_u32() | (self.xy_fifo[0].y_u32() << 16),
             13 => self.xy_fifo[1].x_u32() | (self.xy_fifo[1].y_u32() << 16),
             14 | 15 => self.xy_fifo[2].x_u32() | (self.xy_fifo[2].y_u32() << 16),
-            16 => self.z_fifo[0] as u16 as u32,
-            17 => self.z_fifo[1] as u16 as u32,
-            18 => self.z_fifo[2] as u16 as u32,
-            19 => self.z_fifo[3] as u16 as u32,
+            16 => self.z_fifo[0] as u32,
+            17 => self.z_fifo[1] as u32,
+            18 => self.z_fifo[2] as u32,
+            19 => self.z_fifo[3] as u32,
             20 => self.color_fifo[0].into(),
             21 => self.color_fifo[1].into(),
             22 => self.color_fifo[2].into(),
@@ -342,13 +344,18 @@ impl Gte {
             60 => self.dqb as u32,
             61 => self.zsf3 as u32,
             62 => self.zsf4 as u32,
-            63 => self.flags as u32,
+            63 => 0x1000 as u32,
             _ => unreachable!("{}", index),
-        }
+        };
+
+        // println!("[GTE] Read {:08x} from r{}", value, index);
+        value
     }
 
     pub fn write_reg(&mut self, index: u32, value: u32) {
         let index = index as usize;
+
+        // println!("[GTE] Writing {:08x} to r{}", value, index);
 
         match index {
             0 => {
@@ -411,16 +418,16 @@ impl Gte {
                 ));
             }
             16 => {
-                self.z_fifo[0] = value as i16;
+                self.z_fifo[0] = value as u16;
             }
             17 => {
-                self.z_fifo[1] = value as i16;
+                self.z_fifo[1] = value as u16;
             }
             18 => {
-                self.z_fifo[2] = value as i16;
+                self.z_fifo[2] = value as u16;
             }
             19 => {
-                self.z_fifo[3] = value as i16;
+                self.z_fifo[3] = value as u16;
             }
             20 => {
                 self.color_fifo[0] = Color::from(value);
@@ -487,13 +494,13 @@ impl Gte {
                 self.rotation[2][Z] = rt33 as i16 as i64;
             }
             37 => {
-                self.translation[X] = value as i64;
+                self.translation[X] = value as i32 as i64;
             }
             38 => {
-                self.translation[Y] = value as i64;
+                self.translation[Y] = value as i32 as i64;
             }
             39 => {
-                self.translation[Z] = value as i64;
+                self.translation[Z] = value as i32 as i64;
             }
             /* Light matrix */
             40 => {
@@ -607,14 +614,16 @@ impl Gte {
         self.instruction = op;
 
         match op & 0x3f {
-            0x01 => self.rtps(),
+            0x01 => self.rtps(0, true),
             0x06 => self.nclip(),
             0x0c => self.op(),
             0x10 => self.dpcs(),
             0x13 => self.ncds(),
             0x1b => self.nccs(),
             0x1e => self.ncs(),
-            0x30 => self.rtps(),
+            0x2d => self.avsz3(),
+            0x2e => self.avsz4(),
+            0x30 => self.rtpt(),
             0x3f => { println!("Unimplemented 0x3f GTE"); },
             _ => {
                 panic!("[GTE] Unhandled {:08x}", op);
@@ -630,43 +639,58 @@ impl Gte {
         self.instruction & (1 << 19)
     }
 
-    pub fn rtps(&mut self) {
-        println!("RTPS");
-
-        let dots = Vector3(
-            self.rotation[0].dot(&self.v0),
-            self.rotation[1].dot(&self.v0),
-            self.rotation[2].dot(&self.v0),
-        );
-
-        self.set_mac_ir(
-            (self.translation << 12) + dots,
-            self.op_lm() != 0
-        );
-
-        self.z_fifo[3] = if self.op_shift() != 0 {
-            self.mac.2 as i16
+    pub fn rtps(&mut self, v_idx: usize, finalize: bool) {
+        let vec = if v_idx == 0 {
+            &self.v0
+        } else if v_idx == 1 {
+            &self.v1
         } else {
-            (self.mac.2 >> 12) as i16
+            &self.v2
         };
 
-        let h = (((self.h as i64) * 0x20000) / (self.z_fifo[3] as i64) + 1) / 2;
+        let dots = Vector3(
+            self.rotation[0].dot(vec),
+            self.rotation[1].dot(vec),
+            self.rotation[2].dot(vec),
+        );
 
-        self.mac0 = h * self.ir.0 + (self.ofx as i64);
-        self.xy_fifo[2][X] = self.mac0 / 0x10000;
-        self.mac0 = h * self.ir.1 + (self.ofy as i64);
-        self.xy_fifo[2][Y] = self.mac0 / 0x10000;
-        self.mac0 = h * (self.dqa as i64) + (self.dqb as i64);
-        self.xy_fifo[2][Y] = self.mac0 / 0x1000;
+        let first = (self.translation << 12) + dots;
+        self.set_mac_ir(first, self.op_lm() != 0);
+    
+        let new_z = ((first.2 >> 12) as i32).clamp(0, 0xffff) as u16;
+        self.z_fifo.remove(0);
+        self.z_fifo.push(new_z);
+
+        let (h_over_s3z, _) = division::division(self.h, new_z as u16);
+        let h_over_s3z = h_over_s3z as i32 as i64;
+        let mut x = h_over_s3z * self.ir.0 + (self.ofx as i32 as i64);
+        let mut y = h_over_s3z * self.ir.1 + (self.ofy as i32 as i64);
+
+        self.mac0 = y;
+        x >>= 16;
+        y >>= 16;
+
+        self.xy_fifo[0] = self.xy_fifo[1].clone();
+        self.xy_fifo[1] = self.xy_fifo[2].clone();
+        self.xy_fifo[2] = Vector3(
+            x.clamp(-0x400, 0x3ff) as i32 as i64,
+            y.clamp(-0x400, 0x3ff) as i32 as i64,
+            0
+        );
+
+        if finalize {
+            self.mac0 = (h_over_s3z * (self.dqa as i32 as i64) + (self.dqb as i32 as i64));
+            self.ir0 = (self.mac0 >> 12).clamp(0, 0x1000) as i16;
+        }
     }
 
     pub fn rtpt(&mut self) {
-
+        self.rtps(0, false);
+        self.rtps(1, false);
+        self.rtps(2, true);
     }
 
     pub fn nclip(&mut self) {
-        println!("NCLIP");
-
         let sx0 = self.xy_fifo[0][X] as i64;
         let sy0 = self.xy_fifo[0][Y] as i64;
 
@@ -689,8 +713,6 @@ impl Gte {
     }
 
     pub fn op(&mut self) {
-        println!("OP");
-
         self.mac = self.ir.cross(&self.rotation.diagonal());
         if self.op_shift() != 0 {
             self.mac = self.mac.shift_fraction();
@@ -737,8 +759,6 @@ impl Gte {
     ///
     /// `MainColor + (FarColor - MainColor) * IR0`
     pub fn dpcs(&mut self) {
-        println!("DPCS");
-
         // Align bits to Far color (lower 4 bits are "fraction")
         let rgb = self.color.as_vec() << 4;
 
@@ -803,8 +823,6 @@ impl Gte {
     }
 
     pub fn ncds(&mut self) {
-        println!("NCDS({})", self.op_shift() != 0);
-
         self.set_mac_ir(
             self.light * self.v0,
             self.op_lm() != 0
@@ -859,5 +877,24 @@ impl Gte {
         }
 
         self.ir = Vector3(f0, f1, f2);
+    }
+
+    pub fn avsz3(&mut self) {
+        let value = self.zsf3 as i64;
+        let sum = (self.z_fifo[1] as i64)
+                    .wrapping_add(self.z_fifo[2] as i64)
+                    .wrapping_add(self.z_fifo[3] as i64);
+        self.mac0 = value * sum;
+        self.otz = (value >> 12).clamp(0, 0xffff) as u16;
+    }
+    
+    pub fn avsz4(&mut self) {
+        let value = self.zsf4 as i64;
+        let sum = (self.z_fifo[0] as i64)
+                    .wrapping_add(self.z_fifo[1] as i64)
+                    .wrapping_add(self.z_fifo[2] as i64)
+                    .wrapping_add(self.z_fifo[3] as i64);
+        self.mac0 = value * sum;
+        self.otz = (value >> 12).clamp(0, 0xffff) as u16;
     }
 }

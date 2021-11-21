@@ -159,6 +159,8 @@ impl Gpu {
     }
 
     pub fn process_gp0(&mut self, command: u32) {
+        println!("[GP0] {:08x}", command);
+
         self.buffer.push(command);
 
         if self.remaining_words == 0 {
@@ -287,7 +289,7 @@ impl Gpu {
                 | 0x79
                 | 0x7b
                 | 0xf0..=0xff => {
-                    println!("[GPU] GP0({:02x}): unknown/garbage", opcode);
+                    // println!("[GPU] GP0({:02x}): unknown/garbage", opcode);
                 }
             }
 
@@ -309,16 +311,16 @@ impl Gpu {
 
     // +2
     fn gp0_02_fill_rectangle(&mut self) {
-        // let color_bgr24 = self.buffer[0] & 0xff_ffff;
-        // let top_left_x = self.buffer[1] & 0xffff;
-        // let top_left_y = self.buffer[1] >> 16;
-        // let width = self.buffer[2] & 0xffff;
-        // let height = self.buffer[2] >> 16;
+        let color_bgr24 = self.buffer[0] & 0xff_ffff;
+        let top_left_x = self.buffer[1] & 0xffff;
+        let top_left_y = self.buffer[1] >> 16;
+        let width = self.buffer[2] & 0xffff;
+        let height = self.buffer[2] >> 16;
 
-        // println!("[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
-        //     top_left_x, top_left_y,
-        //     width, height,
-        //     color_bgr24);
+        println!("[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
+            top_left_x, top_left_y,
+            width, height,
+            color_bgr24);
     }
 
     fn gp0_03_nop2(&mut self) {
@@ -344,6 +346,8 @@ impl Gpu {
             Color::parse(self.buffer[0]),
             Color::parse(self.buffer[0]),
         ];
+
+        println!("Triangle at {:?} with colors {:?}", vertices, colors);
 
         if let Some(renderer) = &mut self.renderer {
             renderer.push_triangle(vertices, colors);
@@ -584,22 +588,22 @@ impl Gpu {
 
     // +1
     fn gp0_72_mono_rectangle_8_alpha(&mut self) {
-        // println!("[GPU] GP0(72): mono_rectangle_8_alpha");
+        println!("[GPU] GP0(72): mono_rectangle_8_alpha");
     }
 
     // +1
     fn gp0_78_mono_rectangle_16(&mut self) {
-        // println!("[GPU] GP0(78): mono_rectangle_16");
+        println!("[GPU] GP0(78): mono_rectangle_16");
     }
 
     // +1
     fn gp0_7a_mono_rectangle_16_alpha(&mut self) {
-        // println!("[GPU] GP0(7a): mono_rectangle_16_alpha");
+        println!("[GPU] GP0(7a): mono_rectangle_16_alpha");
     }
 
     // +3
     fn gp0_64_textured_rectangle_blend(&mut self) {
-        // println!("[GPU] GP0(64): textured_rectangle_blend");
+        println!("[GPU] GP0(64): textured_rectangle_blend");
 
         let top_left = Position::parse(self.buffer[1]);
 
@@ -621,37 +625,37 @@ impl Gpu {
 
     // +3
     fn gp0_65_textured_rectangle_raw(&mut self) {
-        // println!("[GPU] GP0(65): textured_rectangle_raw");
+        println!("[GPU] GP0(65): textured_rectangle_raw");
     }
 
     // +3
     fn gp0_66_textured_rectangle_alpha_blend(&mut self) {
-        // println!("[GPU] GP0(66): textured_rectangle_alpha_blend");
+        println!("[GPU] GP0(66): textured_rectangle_alpha_blend");
     }
 
     // +3
     fn gp0_67_textured_rectangle_alpha_raw(&mut self) {
-        // println!("[GPU] GP0(67): textured_rectangle_alpha_raw");
+        println!("[GPU] GP0(67): textured_rectangle_alpha_raw");
     }
 
     // +2
     fn gp0_6c_textured_rectangle_dot_blend(&mut self) {
-        // println!("[GPU] GP0(6c): textured_rectangle_dot_blend");
+        println!("[GPU] GP0(6c): textured_rectangle_dot_blend");
     }
 
     // +2
     fn gp0_6d_textured_rectangle_dot_raw(&mut self) {
-        // println!("[GPU] GP0(6d): textured_rectangle_dot_raw");
+        println!("[GPU] GP0(6d): textured_rectangle_dot_raw");
     }
 
     // +2
     fn gp0_6e_textured_rectangle_dot_alpha_blend(&mut self) {
-        // println!("[GPU] GP0(6e): textured_rectangle_dot_alpha_blend");
+        println!("[GPU] GP0(6e): textured_rectangle_dot_alpha_blend");
     }
 
     // +2
     fn gp0_6f_textured_rectangle_dot_alpha_raw(&mut self) {
-        // println!("[GPU] GP0(6f): textured_rectangle_dot_alpha_raw");
+        println!("[GPU] GP0(6f): textured_rectangle_dot_alpha_raw");
     }
 
     // +2

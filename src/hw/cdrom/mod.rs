@@ -306,7 +306,7 @@ impl Cdrom {
             }
             0x1a => {
                 self.enqueue_interrupt(3, &[0]);
-                self.enqueue_interrupt(5, &[2, 0, 0x20, 0, b'S', b'C', b'E', b'E']);
+                self.enqueue_interrupt(5, &[2, 0, 0x20, 0, b'S', b'C', b'E', b'A']);
             }
             _ => {
                 panic!("[CDR] Cannot do {:02x}", command);

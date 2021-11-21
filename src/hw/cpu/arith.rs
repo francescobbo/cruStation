@@ -291,7 +291,7 @@ mod tests {
         cpu.trash_registers();
 
         // SLL r0, r0, 0 => NOP
-        cpu.current_instruction = 0x00000000;
+        cpu.current_instruction.0 = 0x00000000;
         cpu.ins_sll();
 
         assert_eq!(cpu.regs[0], 0);
@@ -303,7 +303,7 @@ mod tests {
         cpu.trash_registers();
 
         // SLL r1, r1, 0
-        cpu.current_instruction = 0x0001_0800;
+        cpu.current_instruction.0 = 0x0001_0800;
         cpu.ins_sll();
 
         assert_eq!(cpu.regs[1], 0xf00d_beef);
@@ -315,7 +315,7 @@ mod tests {
         cpu.trash_registers();
 
         // SLL r1, r1, 1
-        cpu.current_instruction = 0x0001_0840;
+        cpu.current_instruction.0 = 0x0001_0840;
         cpu.ins_sll();
 
         assert_eq!(cpu.regs[1], 0xe01b_7dde);
@@ -327,7 +327,7 @@ mod tests {
         cpu.trash_registers();
 
         // SLL r1, r1, 30
-        cpu.current_instruction = 0x0001_0f80;
+        cpu.current_instruction.0 = 0x0001_0f80;
         cpu.ins_sll();
 
         assert_eq!(cpu.regs[1], 0xc000_0000);
@@ -339,7 +339,7 @@ mod tests {
         cpu.trash_registers();
 
         // SLL r1, r1, 31
-        cpu.current_instruction = 0x0001_0fc0;
+        cpu.current_instruction.0 = 0x0001_0fc0;
         cpu.ins_sll();
 
         assert_eq!(cpu.regs[1], 0x8000_0000);
@@ -351,7 +351,7 @@ mod tests {
         cpu.trash_registers();
 
         // SLL r1, r2, 6
-        cpu.current_instruction = 0x0002_0980;
+        cpu.current_instruction.0 = 0x0002_0980;
         cpu.ins_sll();
 
         assert_eq!(cpu.regs[1], 0xcdf0_34c0);
@@ -364,7 +364,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRL r1, r1, 0
-        cpu.current_instruction = 0x0001_0802;
+        cpu.current_instruction.0 = 0x0001_0802;
         cpu.ins_srl();
 
         assert_eq!(cpu.regs[1], 0xf00d_beef);
@@ -376,7 +376,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRL r1, r1, 1
-        cpu.current_instruction = 0x0001_0842;
+        cpu.current_instruction.0 = 0x0001_0842;
         cpu.ins_srl();
 
         assert_eq!(cpu.regs[1], 0x7806_df77);
@@ -388,7 +388,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRL r1, r1, 30
-        cpu.current_instruction = 0x0001_0f82;
+        cpu.current_instruction.0 = 0x0001_0f82;
         cpu.ins_srl();
 
         assert_eq!(cpu.regs[1], 0x0000_0003);
@@ -400,7 +400,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRL r1, r1, 31
-        cpu.current_instruction = 0x0001_0fc2;
+        cpu.current_instruction.0 = 0x0001_0fc2;
         cpu.ins_srl();
 
         assert_eq!(cpu.regs[1], 0x0000_0001);
@@ -412,7 +412,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRL r1, r2, 6
-        cpu.current_instruction = 0x0002_0982;
+        cpu.current_instruction.0 = 0x0002_0982;
         cpu.ins_srl();
 
         assert_eq!(cpu.regs[1], 0x004c_df03);
@@ -425,7 +425,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRA r1, r1, 0
-        cpu.current_instruction = 0x0001_0803;
+        cpu.current_instruction.0 = 0x0001_0803;
         cpu.ins_sra();
 
         assert_eq!(cpu.regs[1], 0xf00d_beef);
@@ -437,7 +437,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRA r1, r1, 1
-        cpu.current_instruction = 0x0001_0843;
+        cpu.current_instruction.0 = 0x0001_0843;
         cpu.ins_sra();
 
         assert_eq!(cpu.regs[1], 0xf806_df77);
@@ -449,7 +449,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRA r1, r1, 30
-        cpu.current_instruction = 0x0001_0f83;
+        cpu.current_instruction.0 = 0x0001_0f83;
         cpu.ins_sra();
 
         assert_eq!(cpu.regs[1], 0xffff_ffff);
@@ -461,7 +461,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRA r1, r1, 31
-        cpu.current_instruction = 0x0001_0fc3;
+        cpu.current_instruction.0 = 0x0001_0fc3;
         cpu.ins_sra();
 
         assert_eq!(cpu.regs[1], 0xffff_ffff);
@@ -473,7 +473,7 @@ mod tests {
         cpu.trash_registers();
 
         // SRA r1, r2, 6
-        cpu.current_instruction = 0x0002_0983;
+        cpu.current_instruction.0 = 0x0002_0983;
         cpu.ins_sra();
 
         assert_eq!(cpu.regs[1], 0x004c_df03);

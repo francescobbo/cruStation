@@ -415,7 +415,9 @@ impl PsxBus for Bus {
 
 impl Bus {
     fn handle_dma_write(&self) {
+        println!("DMA?");
         if let Some(active_channel) = self.dma.borrow_mut().active_channel() {
+            println!("DMA! {:?}", active_channel);
             let step = active_channel.step();
             let mut addr = active_channel.base();
 
@@ -425,6 +427,7 @@ impl Bus {
                 SyncMode::Immediate => match active_channel.link() {
                     ChannelLink::Otc => {
                         let mut remaining_words = block_size;
+                        println!("[DMA6] OTC -> RAM @ 0x{:08x}, block, count: 0x{:04x}\n", addr, remaining_words);
                         while remaining_words > 0 {
                             match active_channel.direction() {
                                 Direction::FromRam => {
@@ -435,6 +438,7 @@ impl Bus {
                                         1 => 0xff_ffff,
                                         _ => addr.wrapping_add(step as u32) & 0x1f_fffc,
                                     };
+                                    println!("[OTC] Writing {:08x} to {:08x}", word, addr);
                                     self.ram.borrow_mut().write::<u32>(addr, word);
                                 }
                             }
@@ -442,6 +446,9 @@ impl Bus {
                             remaining_words -= 1;
                         }
                         active_channel.done();
+                        // if let Some(d) = &self.debug_tx {
+                        //     d.send(true);
+                        // }
                     }
                     ChannelLink::Cdrom => {
                         let mut remaining_words = block_size * blocks;
@@ -459,6 +466,7 @@ impl Bus {
                                 }
                             }
                         }
+                        active_channel.done();
                     }
                     _ => {
                         panic!("Cannot handle link {:?}", active_channel.link());
@@ -472,9 +480,12 @@ impl Bus {
                                     Direction::FromRam => {
                                         let header = self.ram.borrow_mut().read::<u32>(addr);
                                         let word_count = header >> 24;
-
-                                        // println!("[DMA] GPU packet {} words {:08x}", word_count, header);
-
+                 
+                                        // if word_count > 0 {
+                                            println!("[DMA2] GPU <- RAM @ 0x{:08x}, count: {}, nextAddr: 0x{:08x}",
+                                            addr, word_count, header);
+                                        // }
+                 
                                         for _ in 0..word_count {
                                             addr = addr.wrapping_add(step as u32);
                                             let cmd = self.ram.borrow_mut().read::<u32>(addr);

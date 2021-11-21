@@ -165,12 +165,21 @@ impl<T: PsxBus> Cpu<T> {
         if !self.cop0.cop2_enabled {
             self.coprocessor_exception(2);
         }
+
+        let address = self.ls_address();
+        let value = self.load::<u32>(address);
+
+        self.gte.write_reg(self.current_instruction.rt(), value);
     }
 
     pub fn ins_swc2(&mut self) {
         if !self.cop0.cop2_enabled {
             self.coprocessor_exception(2);
         }
+
+        let address = self.ls_address();
+        let value = self.gte.read_reg(self.current_instruction.rt());
+        self.store::<u32>(address, value);
     }
 
     pub fn ins_cop3(&mut self) {

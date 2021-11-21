@@ -216,6 +216,7 @@ impl<T: PsxBus> Cpu<T> {
         if self.ctrl_ch.try_recv().is_ok() {
             println!();
             debug::Debugger::enter(self);
+            // self.debugger.stepping = true;
         } else if debug::Debugger::should_break(self) {
             debug::Debugger::enter(self);
         }
@@ -255,6 +256,9 @@ impl<T: PsxBus> Cpu<T> {
             self.in_delay = true;
             self.current_instruction.0 = ins;
             self.branch_delay_slot = None;
+            if self.debugger.stepping {
+                println!("[{:08x}]", _pc);
+            }
         } else {
             self.in_delay = false;
 
@@ -264,8 +268,12 @@ impl<T: PsxBus> Cpu<T> {
             }
 
             self.current_instruction.0 = self.fetch_at_pc();
+            if self.debugger.stepping {
+                println!("[{:08x}]", self.pc);
+            }
             self.pc = self.pc.wrapping_add(4);
         }
+
 
         match self.current_instruction.opcode() {
             0x00 => match self.current_instruction.special_opcode() {

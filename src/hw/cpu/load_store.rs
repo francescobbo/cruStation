@@ -4,7 +4,7 @@ use crate::hw::vec::ByteSerialized;
 
 impl<B: PsxBus> Cpu<B> {
     #[inline(always)]
-    fn ls_address(&self) -> u32 {
+    pub fn ls_address(&self) -> u32 {
         let imm = self.current_instruction.simm16() as u32;
         self.r_rs().wrapping_add(imm)
     }
@@ -135,6 +135,9 @@ impl<B: PsxBus> Cpu<B> {
         let address = self.ls_address();
 
         if address % 4 == 0 {
+            if self.debugger.stepping {
+                println!("[SW ] Writing {:08x} to {:08x}", self.r_rt(), address);
+            }
             self.store::<u32>(address, self.r_rt());
         } else {
             self.exception(Exception::AddressErrorStore);
@@ -218,7 +221,7 @@ impl<B: PsxBus> Cpu<B> {
         }
     }
 
-    fn store<T: R3000Type>(&mut self, address: u32, value: u32) {
+    pub fn store<T: R3000Type>(&mut self, address: u32, value: u32) {
         if self.cop0.isolate_cache {
             return;
         }
