@@ -4,8 +4,8 @@ mod algebra;
 
 mod division;
 
-use crate::hw::gte::algebra::Axis::{X, Y, Z};
-use crate::hw::gte::algebra::*;
+use algebra::Axis::{X, Y, Z};
+use algebra::*;
 
 /**
     Registers  | Type  | Name             | Description
@@ -344,7 +344,7 @@ impl Gte {
             60 => self.dqb as u32,
             61 => self.zsf3 as u32,
             62 => self.zsf4 as u32,
-            63 => 0x1000 as u32,
+            63 => self.flags,
             _ => unreachable!("{}", index),
         };
 
@@ -670,8 +670,8 @@ impl Gte {
         x >>= 16;
         y >>= 16;
 
-        self.xy_fifo[0] = self.xy_fifo[1].clone();
-        self.xy_fifo[1] = self.xy_fifo[2].clone();
+        self.xy_fifo[0] = self.xy_fifo[1];
+        self.xy_fifo[1] = self.xy_fifo[2];
         self.xy_fifo[2] = Vector3(
             x.clamp(-0x400, 0x3ff) as i32 as i64,
             y.clamp(-0x400, 0x3ff) as i32 as i64,
@@ -679,7 +679,7 @@ impl Gte {
         );
 
         if finalize {
-            self.mac0 = (h_over_s3z * (self.dqa as i32 as i64) + (self.dqb as i32 as i64));
+            self.mac0 = h_over_s3z * (self.dqa as i32 as i64) + (self.dqb as i32 as i64);
             self.ir0 = (self.mac0 >> 12).clamp(0, 0x1000) as i16;
         }
     }
@@ -833,7 +833,7 @@ impl Gte {
             self.op_lm() != 0
         );
 
-        let origIr = self.ir.clone();
+        let orig_ir = self.ir;
 
         self.set_mac_ir(
             (self.far_color << 12) - (self.color.as_vec() << 4) * self.ir,
@@ -841,7 +841,7 @@ impl Gte {
         );
 
         self.set_mac_ir(
-            (self.color.as_vec() << 4) * origIr + self.ir * (self.ir0 as i64),
+            (self.color.as_vec() << 4) * orig_ir + self.ir * (self.ir0 as i64),
             self.op_lm() != 0
         );
 

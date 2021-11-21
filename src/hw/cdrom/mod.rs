@@ -107,30 +107,27 @@ impl BusDevice for Cdrom {
                 self.controller_status.0
             }
             1 => {
-                match self.pending_irqs.front_mut() {
-                    Some(irq) => {
-                        if !irq.data.is_empty() {
-                            let value = irq.data.remove(0);
-                            if irq.data.is_empty() && irq.acknowledged {
-                                self.pending_irqs.dequeue();
-                                if !self.pending_irqs.is_empty() {
-                                    self.bus.upgrade().unwrap().borrow().add_event(
-                                        PsxEventType::DeliverCDRomResponse,
-                                        50000,
-                                        0,
-                                    );
-                                }
+                if let Some(irq) = self.pending_irqs.front_mut() {
+                    if !irq.data.is_empty() {
+                        let value = irq.data.remove(0);
+                        if irq.data.is_empty() && irq.acknowledged {
+                            self.pending_irqs.dequeue();
+                            if !self.pending_irqs.is_empty() {
+                                self.bus.upgrade().unwrap().borrow().add_event(
+                                    PsxEventType::DeliverCDRomResponse,
+                                    50000,
+                                    0,
+                                );
                             }
-
-                            value
-                        } else {
-                            0
                         }
-                    }
-                    None => {
-                        println!("[CDR] Tried to read response when none was available");
+
+                        value
+                    } else {
                         0
                     }
+                } else {
+                    println!("[CDR] Tried to read response when none was available");
+                    0
                 }
                 // TODO: When reading further bytes: The buffer is padded with 00h's to the end of the 16-bytes, and does then restart at the first response byte (that, without receiving a new response, so it'll always return the same 16 bytes, until a new command/response has been sent/received).
             }
@@ -237,22 +234,19 @@ impl BusDevice for Cdrom {
                             self.parameters.clear();
                         }
 
-                        match self.pending_irqs.front_mut() {
-                            Some(irq) => {
-                                irq.acknowledged = true;
+                        if let Some(irq) = self.pending_irqs.front_mut() {
+                            irq.acknowledged = true;
 
-                                if irq.data.len() == 0 {
-                                    self.pending_irqs.dequeue();
-                                    if !self.pending_irqs.is_empty() {
-                                        self.bus.upgrade().unwrap().borrow().add_event(
-                                            PsxEventType::DeliverCDRomResponse,
-                                            50000,
-                                            0,
-                                        );
-                                    }
+                            if irq.data.is_empty() {
+                                self.pending_irqs.dequeue();
+                                if !self.pending_irqs.is_empty() {
+                                    self.bus.upgrade().unwrap().borrow().add_event(
+                                        PsxEventType::DeliverCDRomResponse,
+                                        50000,
+                                        0,
+                                    );
                                 }
                             }
-                            None => {}
                         }
                     }
                     2 => {
@@ -276,10 +270,10 @@ impl Cdrom {
         match command {
             0x01 => {
                 println!("Started CDROM stat");
-                self.enqueue_interrupt(3, &[0]);
+                self.enqueue_interrupt(3, &[self.stat.0]);
             }
             0x02 => {
-                self.enqueue_interrupt(3, &[0]);
+                self.enqueue_interrupt(3, &[self.stat.0]);
             }
             0x06 => {
                 println!("ReadN");
@@ -290,22 +284,22 @@ impl Cdrom {
             }
             0x09 => {
                 println!("Pause");
-                self.enqueue_interrupt(3, &[0]);
-                self.enqueue_interrupt(2, &[0]);
+                self.enqueue_interrupt(3, &[self.stat.0]);
+                self.enqueue_interrupt(2, &[self.stat.0]);
             }
             0x0e => {
                 println!("Set mode {:02x}", self.parameters.get(0).unwrap());
-                self.enqueue_interrupt(3, &[0]);
+                self.enqueue_interrupt(3, &[self.stat.0]);
             }
             0x15 => {
-                self.enqueue_interrupt(3, &[0]);
-                self.enqueue_interrupt(2, &[0]);
+                self.enqueue_interrupt(3, &[self.stat.0]);
+                self.enqueue_interrupt(2, &[self.stat.0]);
             }
             0x19 => {
                 self.command_test();
             }
             0x1a => {
-                self.enqueue_interrupt(3, &[0]);
+                self.enqueue_interrupt(3, &[self.stat.0]);
                 self.enqueue_interrupt(5, &[2, 0, 0x20, 0, b'S', b'C', b'E', b'A']);
             }
             _ => {
@@ -341,7 +335,7 @@ impl Cdrom {
     }
 
     pub fn next_response(&mut self) {
-        let response = self.pending_irqs.get(0).unwrap();
+        // let response = self.pending_irqs.get(0).unwrap();
 
         println!("Deliver CDROM response");
         self.bus.upgrade().unwrap().borrow().send_irq(2);

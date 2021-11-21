@@ -5,7 +5,7 @@ use std::sync::mpsc;
 
 use crate::hw::cpu::{Cpu, PsxBus};
 use crate::hw::dma::{ChannelLink, Direction, SyncMode};
-use crate::hw::{Bios, Cdrom, Dma, Gpu, JoypadMemorycard, Ram, Scratchpad, Spu, Timers};
+use crate::hw::{Bios, Cdrom, Dma, Gpu, JoypadMemorycard, Ram, Spu, Timers};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -32,7 +32,6 @@ pub struct Bus {
 
     ram: RefCell<Ram>,
     bios: RefCell<Bios>,
-    scratchpad: RefCell<Scratchpad>,
     io: RefCell<Vec<u8>>,
     cdrom: RefCell<Cdrom>,
     dma: RefCell<Dma>,
@@ -80,7 +79,6 @@ impl Bus {
 
             ram: RefCell::new(Ram::new()),
             bios: RefCell::new(Bios::new()),
-            scratchpad: RefCell::new(Scratchpad::new()),
             io: RefCell::new(vec![0; 0x1000 + 8 * 1024]),
 
             cdrom: RefCell::new(Cdrom::new()),
@@ -106,17 +104,17 @@ impl Bus {
         self.cpu.borrow_mut().run_until(target_pc);
     }
 
-    pub fn run_for(&self, cycles: u64) {
-        let target = *self.total_cycles.borrow() + cycles;
-        while *self.total_cycles.borrow() < target {
-            self.cpu.borrow_mut().cycle();
-        }
-    }
+    // pub fn run_for(&self, cycles: u64) {
+    //     let target = *self.total_cycles.borrow() + cycles;
+    //     while *self.total_cycles.borrow() < target {
+    //         self.cpu.borrow_mut().cycle();
+    //     }
+    // }
 
     /// Installs weak references of self into the devices to allow
     /// omnidirectional communication
     pub fn link(&self, self_ref: Rc<RefCell<Self>>) {
-        self.cpu.borrow_mut().link(&self);
+        self.cpu.borrow_mut().link(self);
         self.timers.borrow_mut().link(Rc::downgrade(&self_ref));
         self.gpu.borrow_mut().link(Rc::downgrade(&self_ref));
         self.gpu.borrow_mut().load_renderer();
@@ -227,13 +225,13 @@ impl Bus {
         });
     }
 
-    pub fn remove_event(&self, kind: PsxEventType) {
-        let mut events = self.events.borrow_mut();
+    // pub fn remove_event(&self, kind: PsxEventType) {
+    //     let mut events = self.events.borrow_mut();
 
-        // If an event of the same type exists, remove it
-        // TODO: retain is unstable API. Alternatives?
-        events.retain(|ev| ev.kind != kind);
-    }
+    //     // If an event of the same type exists, remove it
+    //     // TODO: retain is unstable API. Alternatives?
+    //     events.retain(|ev| ev.kind != kind);
+    // }
 
     pub fn process_event(&self, kind: PsxEventType) {
         match kind {
@@ -356,11 +354,6 @@ impl PsxBus for Bus {
         match addr {
             0x0000_0000..=0x0020_0000 => {
                 self.ram.borrow_mut().write::<T>(addr, value);
-            }
-            0x1f80_0000..=0x1f80_0400 => {
-                self.scratchpad
-                    .borrow_mut()
-                    .write::<T>(addr - 0x1f80_0000, value);
             }
             0x1f80_1040..=0x1f80_104f => {
                 self.joy_mc

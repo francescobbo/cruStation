@@ -16,19 +16,19 @@ pub const UNR_TABLE: [u8; 0x101] = {
     table
 };
 
-pub fn division(mut dividend: u16, mut divisor: u16) -> (u32, bool) {
-    if !((divisor as u64 * 2) > (dividend as u64)) {
+pub fn division(dividend: u16, divisor: u16) -> (u32, bool) {
+    if (divisor as u64 * 2) <= (dividend as u64) {
         return (0x1ffff, true);
     }
 
     let shift = divisor.leading_zeros();
-    let mut dividend = (dividend as u64) << shift;
-    let mut divisor = divisor << shift;
+    let dividend = (dividend as u64) << shift;
+    let divisor = divisor << shift;
     
     let reciprocal = reciprocal(divisor);
     let result = ((dividend * reciprocal) + 0x8000) >> 16;
 
-    if (result > 0x1ffff) {
+    if result > 0x1ffff {
         (0x1ffff, false)
     } else {
         (result as u32, false)

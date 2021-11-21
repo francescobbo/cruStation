@@ -1,9 +1,7 @@
-use std::cell::RefCell;
-use std::rc::Weak;
 use std::sync::mpsc;
 
 use crate::hw::cpu::cop0::{Cop0, Exception};
-use crate::hw::{Bios, Gte};
+use crate::hw::{Bios};
 
 use bitfield::bitfield;
 
@@ -13,17 +11,18 @@ mod branch;
 mod cop;
 mod cop0;
 mod debug;
+mod gte;
 mod icache;
 mod load_store;
 
+use gte::Gte;
 use biu::BIUCacheControl;
 use icache::InstructionCache;
 
-use std::time::{SystemTime, UNIX_EPOCH};
+// use std::time::{SystemTime, UNIX_EPOCH};
 
 // Don't like using a bus::Thing here.
 use crate::hw::bus::R3000Type;
-use crate::hw::disasm;
 
 pub trait PsxBus {
     fn read<T: R3000Type>(&self, address: u32) -> u32;
@@ -88,8 +87,8 @@ pub struct Cpu<T: PsxBus> {
     ctrl_ch: mpsc::Receiver<bool>,
     irq_ch: mpsc::Receiver<u32>,
 
-    ips: u64,
-    ips_start: u128,
+    // ips: u64,
+    // ips_start: u128,
 }
 
 impl<T: PsxBus> Cpu<T> {
@@ -130,11 +129,11 @@ impl<T: PsxBus> Cpu<T> {
             ctrl_ch: debug_rx,
             irq_ch: irq_rx,
 
-            ips: 0,
-            ips_start: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
+            // ips: 0,
+            // ips_start: SystemTime::now()
+            //     .duration_since(UNIX_EPOCH)
+            //     .unwrap()
+            //     .as_millis(),
         }
     }
 
@@ -170,20 +169,16 @@ impl<T: PsxBus> Cpu<T> {
             None => {
                 // Fetch and store the current instruction
                 let ins: u32;
-                unsafe {
-                    ins = self.load::<u32>(self.pc);
-                    self.icache.store(self.pc, ins);
-                }
+                ins = self.load::<u32>(self.pc);
+                self.icache.store(self.pc, ins);
 
                 // Fetch up to 4 words (from current PC up to next 16-byte
                 // alignment). TODO: this might be 2 words (but unlikely to
                 // ever be used).
                 let mut next = self.pc.wrapping_add(4);
                 while next & 0xf != 0 {
-                    unsafe {
-                        let ins = self.load::<u32>(next);
-                        self.icache.store(next, ins);
-                    }
+                    let ins = self.load::<u32>(next);
+                    self.icache.store(next, ins);
 
                     next = next.wrapping_add(4);
                 }

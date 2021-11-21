@@ -61,9 +61,9 @@ impl Vector3 {
         self.0 as u16 as u32
     }
 
-    pub fn x_i32(&self) -> i32 {
-        self.0 as i32
-    }
+    // pub fn x_i32(&self) -> i32 {
+    //     self.0 as i32
+    // }
 
     pub fn x_u32s(&self) -> u32 {
         self.0 as i32 as u32
@@ -81,9 +81,9 @@ impl Vector3 {
         self.1 as u16 as u32
     }
 
-    pub fn y_i32(&self) -> i32 {
-        self.1 as i32
-    }
+    // pub fn y_i32(&self) -> i32 {
+    //     self.1 as i32
+    // }
 
     pub fn y_u32s(&self) -> u32 {
         self.1 as i32 as u32
@@ -101,9 +101,9 @@ impl Vector3 {
         self.2 as u16 as u32
     }
 
-    pub fn z_i32(&self) -> i32 {
-        self.2 as i32
-    }
+    // pub fn z_i32(&self) -> i32 {
+    //     self.2 as i32
+    // }
 
     pub fn z_u32s(&self) -> u32 {
         self.2 as i32 as u32

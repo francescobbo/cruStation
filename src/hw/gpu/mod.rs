@@ -143,7 +143,7 @@ impl Gpu {
         if !self.gpustat.vertical_res() {
             // 240 lines
             // println!("Don't know how to handle VBlank in 240 mode");
-            self.gpustat.set_even_odd(!self.gpustat.even_odd());
+            // self.gpustat.set_even_odd(!self.gpustat.even_odd());
         } else {
             // 480 lines
             self.gpustat.set_even_odd(!self.gpustat.even_odd());
@@ -736,10 +736,10 @@ impl Gpu {
         // Check 3rd word, multiply high and low halfword
         // that's the number of remaining halfwords to read.
 
-        let size = self.buffer[2] as usize;
-        let width = size & 0xffff;
-        let height = size >> 16;
-        let size = width * height;
+        // let size = self.buffer[2] as usize;
+        // let width = size & 0xffff;
+        // let height = size >> 16;
+        // let size = width * height;
         // println!("Remaining {}x{} = {}", width, height, size);
 
         // Yeah, the other way around...
@@ -869,19 +869,19 @@ impl Gpu {
         }
     }
 
-    fn is_ntsc(&self) -> bool {
-        !self.gpustat.video_mode()
-    }
+    // fn is_ntsc(&self) -> bool {
+    //     !self.gpustat.video_mode()
+    // }
 
-    fn is_pal(&self) -> bool {
-        !self.is_ntsc()
-    }
+    // fn is_pal(&self) -> bool {
+    //     !self.is_ntsc()
+    // }
 
-    fn scanlines(&self) -> u32 {
-        if self.is_ntsc() {
-            263
-        } else {
-            314
-        }
-    }
+    // fn scanlines(&self) -> u32 {
+    //     if self.is_ntsc() {
+    //         263
+    //     } else {
+    //         314
+    //     }
+    // }
 }

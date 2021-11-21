@@ -9,7 +9,7 @@ use std::rc::Rc;
 fn main() {
     let bus_rc = Rc::new(RefCell::new(Bus::new()));
     let bus = bus_rc.borrow();
-    let mut cpu = bus.cpu.borrow_mut();
+    let cpu = bus.cpu.borrow_mut();
 
     let tx = bus.debug_tx.as_ref().unwrap().clone();
 
