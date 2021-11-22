@@ -23,7 +23,7 @@ fn load_fuzz_tests(set_name: &str) -> Vec<GteFuzzTest> {
 }
 
 extern crate crustationcpu;
-use crustationcpu::gte::Gte;
+use crustationcpu::gte::{Flags, Gte};
 
 #[test]
 fn registers() {
@@ -46,39 +46,60 @@ fn registers() {
     }
 }
 
-fn run_gte_fuzz_suite(tests: Vec<GteFuzzTest>) {
-    let mut success = true;
+fn run_gte_fuzz_test(test: &GteFuzzTest) -> bool {
+    let mut gte = Gte::new();
 
-    for (idx, test) in tests.iter().enumerate() {
-        println!("Running test {}: {}", idx, test.name);
+    for (r, val) in test.input.iter().enumerate() {
+        let val = u32::from_str_radix(&val[2..], 16).unwrap();
+        gte.write_reg(r as u32, val);
+    }
 
-        let mut gte = Gte::new();
+    let opcode = u32::from_str_radix(&test.opcode[2..], 16).unwrap();
+    gte.execute(opcode);
 
-        for (r, val) in test.input.iter().enumerate() {
-            let val = u32::from_str_radix(&val[2..], 16).unwrap();
-            gte.write_reg(r as u32, val);
-        }
+    for (r, val) in test.output.iter().enumerate() {
+        let expected = u32::from_str_radix(&val[2..], 16).unwrap();
+        let actual = gte.read_reg(r as u32);
 
-        let opcode = u32::from_str_radix(&test.opcode[2..], 16).unwrap();
-        gte.execute(opcode);
+        if expected != actual {
+            if r == 63 {
+                let expected = Flags(expected);
+                let actual = Flags(actual);
 
-        for (r, val) in test.output.iter().enumerate() {
-            let expected = u32::from_str_radix(&val[2..], 16).unwrap();
-            let actual = gte.read_reg(r as u32);
-
-            if expected != actual {
+                println!("Error flags contains {:#?} but {:#?} was expected", actual, expected);
+            } else {
                 println!(
                     "r{} contains {:08x}, but was expecting {:08x}",
                     r, actual, expected
-                );
-                success = false;
+                );    
             }
-        }
 
-        println!();
+            return false;
+        }
     }
 
-    assert_eq!(success, true);
+    true
+}
+
+fn run_gte_fuzz_suite(tests: Vec<GteFuzzTest>) {
+    let n = std::env::args().last().unwrap();
+    if let Ok(n) = usize::from_str_radix(&n, 10) {
+        let test = &tests[n];
+        println!("Running test {}: {}", n, test.name);
+        assert_eq!(run_gte_fuzz_test(test), true);
+    } else {
+        let mut success = true;
+
+        for (idx, test) in tests.iter().enumerate() {
+            println!("Running test {}: {}", idx, test.name);
+            if !run_gte_fuzz_test(test) {
+                success = false;
+            }
+            println!()
+        }
+
+        assert_eq!(success, true);
+    }
 }
 
 #[test]

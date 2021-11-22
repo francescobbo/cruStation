@@ -88,7 +88,7 @@ impl Clamp for i32 {
 }
 
 bitfield! {
-    struct Flags(u32);
+    pub struct Flags(u32);
     impl Debug;
 
     ir0_sat, set_ir0_sat: 12;
@@ -345,7 +345,6 @@ impl Gte {
             62 => self.zsf4 as u32,
             63 => {
                 self.flags.set_error(self.flags.0 & 0x7f87_e000 != 0);
-                println!("returning flags {:?}", self.flags);
                 self.flags.0
             }
             _ => unreachable!("{}", index),
@@ -608,36 +607,11 @@ impl Gte {
         }
     }
 
-    pub fn op_lm(&self) -> u32 {
-        self.instruction & (1 << 10)
+    pub fn op_lm(&self) -> bool {
+        self.instruction & (1 << 10) != 0
     }
 
-    pub fn op_shift(&self) -> u32 {
-        self.instruction & (1 << 19)
-    }
-
-    fn set_ir(&mut self, value: Vector3, lm_flag: bool) {
-        self.ir = value;
-        self.saturate_ir(lm_flag);
-    }
-
-    fn saturate_ir(&mut self, lm: bool) {
-        let min = if lm { 0 } else { -0x8000 };
-
-        let f0 = self.ir.0.clamp(min, 0x7fff);
-        let f1 = self.ir.1.clamp(min, 0x7fff);
-        let f2 = self.ir.2.clamp(min, 0x7fff);
-
-        if f0 != self.ir.0 {
-            self.flags.set_ir1_sat(true);
-        }
-        if f1 != self.ir.1 {
-            self.flags.set_ir2_sat(true);
-        }
-        if f2 != self.ir.2 {
-            self.flags.set_ir3_sat(true);
-        }
-
-        self.ir = Vector3(f0, f1, f2);
+    pub fn op_shift(&self) -> bool {
+        self.instruction & (1 << 19) != 0
     }
 }

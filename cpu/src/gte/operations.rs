@@ -66,7 +66,7 @@ impl Gte {
         );
 
         let first = (self.translation << 12) + dots;
-        self.set_mac_ir(first, self.op_lm() != 0);
+        self.set_mac_ir(first, self.op_lm());
 
         let new_z = ((first.2 >> 12) as i32).clamp(0, 0xffff) as u16;
         self.z_fifo.remove(0);
@@ -116,7 +116,7 @@ impl Gte {
     }
 
     pub fn op(&mut self) {
-        self.set_mac_ir(self.ir.cross(&self.rotation.diagonal()), self.op_lm() != 0);
+        self.set_mac_ir(self.ir.cross(&self.rotation.diagonal()), self.op_lm());
     }
 
     /// Linearly interpolates the main color with the far color.
@@ -143,17 +143,17 @@ impl Gte {
         self.set_mac_ir((self.far_color << 12) - (rgb << 12), false);
 
         // mac = rgb + (far - rgb) * ir0
-        self.set_mac_ir((rgb << 12) + self.ir * self.ir0 as i64, self.op_lm() != 0);
+        self.set_mac_ir((rgb << 12) + self.ir * self.ir0 as i64, self.op_lm());
 
         self.push_color(self.mac);
     }
 
     pub fn ncs(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
+        self.set_mac_ir(self.light * self.v0, self.op_lm());
 
         self.set_mac_ir(
             (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0,
+            self.op_lm(),
         );
 
         self.color_fifo.remove(0);
@@ -166,14 +166,14 @@ impl Gte {
     }
 
     pub fn nccs(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
+        self.set_mac_ir(self.light * self.v0, self.op_lm());
 
         self.set_mac_ir(
             (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0,
+            self.op_lm(),
         );
 
-        self.set_mac_ir((self.ir * self.color.as_vec()) << 4, self.op_lm() != 0);
+        self.set_mac_ir((self.ir * self.color.as_vec()) << 4, self.op_lm());
 
         self.color_fifo.remove(0);
         self.color_fifo.push(Color {
@@ -185,11 +185,11 @@ impl Gte {
     }
 
     pub fn ncds(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
+        self.set_mac_ir(self.light * self.v0, self.op_lm());
 
         self.set_mac_ir(
             (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0,
+            self.op_lm(),
         );
 
         let orig_ir = self.ir;
@@ -201,7 +201,7 @@ impl Gte {
 
         self.set_mac_ir(
             (self.color.as_vec() << 4) * orig_ir + self.ir * (self.ir0 as i64),
-            self.op_lm() != 0,
+            self.op_lm(),
         );
 
         self.color_fifo.remove(0);
@@ -241,9 +241,9 @@ impl Gte {
     fn set_mac0(&mut self, value: i64) {
         self.mac0 = value;
 
-        if self.mac0 > 0x7fff_ffff {
+        if self.mac0 >= 0x8000_0000 {
             self.flags.set_mac0_of_pos(true);
-        } else if self.mac0 < -0x7fff_ffff {
+        } else if self.mac0 < -0x8000_0000 {
             self.flags.set_mac0_of_neg(true);
         }
     }
@@ -258,31 +258,31 @@ impl Gte {
     }
 
     fn set_mac_ir(&mut self, value: Vector3, lm_flag: bool) {
-        // println!("Setting MAC TO {:016x} {:016x} {:016x}", value.0, value.1, value.2);
-
+        println!("Setting MAC TO {:016x} {:016x} {:016x}", value.0, value.1, value.2);
         self.mac = value;
-        if self.op_shift() != 0 {
-            self.mac = self.mac.shift_fraction()
-        }
 
-        if self.mac.0 > 0x7ff_ffff_ffff {
+        if self.mac.0 >= 0x800_0000_0000 {
             self.flags.set_mac1_of_pos(true);
-        } else if self.mac.0 < -0x7ff_ffff_ffff {
+        } else if self.mac.0 < -0x800_0000_0000 {
             self.flags.set_mac1_of_neg(true);
         }
 
-        if self.mac.1 > 0x7ff_ffff_ffff {
+        if self.mac.1 >= 0x800_0000_0000 {
             self.flags.set_mac2_of_pos(true);
-        } else if self.mac.1 < -0x7ff_ffff_ffff {
+        } else if self.mac.1 < -0x800_0000_0000 {
             self.flags.set_mac2_of_neg(true);
         }
 
-        if self.mac.2 > 0x7ff_ffff_ffff {
+        if self.mac.2 >= 0x800_0000_0000 {
             self.flags.set_mac3_of_pos(true);
-        } else if self.mac.2 < -0x7ff_ffff_ffff {
+        } else if self.mac.2 < -0x800_0000_0000 {
             self.flags.set_mac3_of_neg(true);
         }
-        
+
+        if self.op_shift() {
+            self.mac = self.mac.shift_fraction()
+        }
+
         self.mac = self.mac.truncate();
         self.set_ir(self.mac, lm_flag);
     }
@@ -313,5 +313,30 @@ impl Gte {
             r, g, b, 
             code: self.color.code,
         });
+    }
+
+    fn set_ir(&mut self, value: Vector3, lm_flag: bool) {
+        self.ir = value;
+        self.saturate_ir(lm_flag);
+    }
+
+    fn saturate_ir(&mut self, lm: bool) {
+        let min = if lm { 0 } else { -0x8000 };
+
+        let f0 = self.ir.0.clamp(min, 0x7fff);
+        let f1 = self.ir.1.clamp(min, 0x7fff);
+        let f2 = self.ir.2.clamp(min, 0x7fff);
+
+        if f0 != self.ir.0 {
+            self.flags.set_ir1_sat(true);
+        }
+        if f1 != self.ir.1 {
+            self.flags.set_ir2_sat(true);
+        }
+        if f2 != self.ir.2 {
+            self.flags.set_ir3_sat(true);
+        }
+
+        self.ir = Vector3(f0, f1, f2);
     }
 }
