@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Result, Value};
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -12,11 +11,14 @@ struct GteFuzzTest {
 }
 
 fn load_fuzz_tests(set_name: &str) -> Vec<GteFuzzTest> {
-    let mut file = File::open("tests/gte/fuzz/data/".to_string() + set_name + ".json").unwrap();
+    let mut file = File::open("tests/gte/fuzz/data/".to_string() + set_name + ".json")
+        .expect("Could not open fuzz data file");
     let mut contents = String::new();
-    file.read_to_string(&mut contents);
+    file.read_to_string(&mut contents)
+        .expect("Could not load fuzz data");
 
-    let tests: Vec<GteFuzzTest> = serde_json::from_str(&contents).unwrap();
+    let tests: Vec<GteFuzzTest> =
+        serde_json::from_str(&contents).expect("Could not parse fuzz data");
     tests
 }
 
@@ -26,7 +28,7 @@ use crustationcpu::gte::Gte;
 #[test]
 fn registers() {
     let tests = load_fuzz_tests("registers");
-    
+
     for test in tests {
         let mut gte = Gte::new();
 
@@ -65,7 +67,10 @@ fn run_gte_fuzz_suite(tests: Vec<GteFuzzTest>) {
             let actual = gte.read_reg(r as u32);
 
             if expected != actual {
-                println!("r{} contains {:08x}, but was expecting {:08x}", r, actual, expected);
+                println!(
+                    "r{} contains {:08x}, but was expecting {:08x}",
+                    r, actual, expected
+                );
                 success = false;
             }
         }

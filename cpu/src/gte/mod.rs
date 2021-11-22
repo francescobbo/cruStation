@@ -1,5 +1,5 @@
-use crustationlogger::*;
 use bitfield::bitfield;
+use crustationlogger::*;
 
 mod algebra;
 mod color;
@@ -345,8 +345,9 @@ impl Gte {
             62 => self.zsf4 as u32,
             63 => {
                 self.flags.set_error(self.flags.0 & 0x7f87_e000 != 0);
+                println!("returning flags {:?}", self.flags);
                 self.flags.0
-            },
+            }
             _ => unreachable!("{}", index),
         };
 
@@ -616,24 +617,8 @@ impl Gte {
     }
 
     fn set_ir(&mut self, value: Vector3, lm_flag: bool) {
-        let min = if lm_flag { 0 } else { -0x8000 };
-
-        self.ir = Vector3(
-            value.0.clamp(min, 0x7fff),
-            value.1.clamp(min, 0x7fff),
-            value.2.clamp(min, 0x7fff),
-        )
-    }
-
-    fn set_mac_ir(&mut self, value: Vector3, lm_flag: bool) {
-        self.mac = if self.op_shift() != 0 {
-            value.shift_fraction()
-        } else {
-            value
-        }
-        .truncate();
-
-        self.set_ir(self.mac, lm_flag);
+        self.ir = value;
+        self.saturate_ir(lm_flag);
     }
 
     fn saturate_ir(&mut self, lm: bool) {
@@ -642,8 +627,6 @@ impl Gte {
         let f0 = self.ir.0.clamp(min, 0x7fff);
         let f1 = self.ir.1.clamp(min, 0x7fff);
         let f2 = self.ir.2.clamp(min, 0x7fff);
-
-        self.flags.0 = 0;
 
         if f0 != self.ir.0 {
             self.flags.set_ir1_sat(true);

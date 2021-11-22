@@ -188,6 +188,14 @@ impl ops::Shl<u32> for Vector3 {
     }
 }
 
+impl ops::Shr<u32> for Vector3 {
+    type Output = Self;
+
+    fn shr(self, scalar: u32) -> Self::Output {
+        Vector3(self.0 >> scalar, self.1 >> scalar, self.2 >> scalar)
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Matrix3 {
     f: [Vector3; 3],

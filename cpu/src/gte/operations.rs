@@ -1,6 +1,6 @@
 use crustationlogger::*;
 
-use super::algebra::Axis::{X, Y, Z};
+use super::algebra::Axis::{X, Y};
 use super::algebra::*;
 use super::color::Color;
 use super::division;
@@ -111,26 +111,12 @@ impl Gte {
         let sx2 = self.xy_fifo[2][X] as i64;
         let sy2 = self.xy_fifo[2][Y] as i64;
 
-        let mac0 = sx0 * sy1 + sx1 * sy2 + sx2 * sy0 - sx0 * sy2 - sx1 * sy0 - sx2 * sy1;
-        if mac0 > (2_i64.pow(31)) {
-            self.flags.0 = 0x80010000;
-        } else if mac0 < -(2_i64.pow(31)) {
-            self.flags.0 = 0x80008000;
-        } else {
-            self.flags.0 = 0;
-        }
-
-        self.mac0 = mac0 as i64;
+        let value = sx0 * sy1 + sx1 * sy2 + sx2 * sy0 - sx0 * sy2 - sx1 * sy0 - sx2 * sy1;
+        self.set_mac0(value);
     }
 
     pub fn op(&mut self) {
-        self.mac = self.ir.cross(&self.rotation.diagonal());
-        if self.op_shift() != 0 {
-            self.mac = self.mac.shift_fraction();
-        }
-
-        self.ir = self.mac;
-        self.saturate_ir(self.op_lm() != 0);
+        self.set_mac_ir(self.ir.cross(&self.rotation.diagonal()), self.op_lm() != 0);
     }
 
     /// Linearly interpolates the main color with the far color.
@@ -159,13 +145,7 @@ impl Gte {
         // mac = rgb + (far - rgb) * ir0
         self.set_mac_ir((rgb << 12) + self.ir * self.ir0 as i64, self.op_lm() != 0);
 
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
+        self.push_color(self.mac);
     }
 
     pub fn ncs(&mut self) {
@@ -233,22 +213,105 @@ impl Gte {
         });
     }
 
+    /// Sums 3 Z values in the screen FIFO (1, 2 and 3) and multiplies them
+    /// by ZSF3. The result is >> 12 and put in OTZ.
+    /// 
+    /// Somehow "computes an average"
     pub fn avsz3(&mut self) {
         let value = self.zsf3 as i64;
-        let sum = (self.z_fifo[1] as i64)
-            .wrapping_add(self.z_fifo[2] as i64)
-            .wrapping_add(self.z_fifo[3] as i64);
-        self.mac0 = value * sum;
-        self.otz = (value >> 12).clamp(0, 0xffff) as u16;
+        let sum = (self.z_fifo[1] as i64) + (self.z_fifo[2] as i64) + (self.z_fifo[3] as i64);
+        self.set_mac0(value * sum);
+        self.set_otz((value * sum) >> 12);
     }
 
+    /// Sums all the Z values in the screen FIFO (0, 1, 2 and 3) and multiplies
+    /// them by ZSF4. The result is >> 12 and put in OTZ.
+    /// 
+    /// Somehow "computes an average"
     pub fn avsz4(&mut self) {
         let value = self.zsf4 as i64;
         let sum = (self.z_fifo[0] as i64)
-            .wrapping_add(self.z_fifo[1] as i64)
-            .wrapping_add(self.z_fifo[2] as i64)
-            .wrapping_add(self.z_fifo[3] as i64);
-        self.mac0 = value * sum;
-        self.otz = (value >> 12).clamp(0, 0xffff) as u16;
+            + (self.z_fifo[1] as i64)
+            + (self.z_fifo[2] as i64)
+            + (self.z_fifo[3] as i64);
+        self.set_mac0(value * sum);
+        self.set_otz((value * sum) >> 12);
+    }
+
+    fn set_mac0(&mut self, value: i64) {
+        self.mac0 = value;
+
+        if self.mac0 > 0x7fff_ffff {
+            self.flags.set_mac0_of_pos(true);
+        } else if self.mac0 < -0x7fff_ffff {
+            self.flags.set_mac0_of_neg(true);
+        }
+    }
+
+    fn set_otz(&mut self, value: i64) {
+        let saturated = value.clamp(0, 0xffff);
+        if saturated != value {
+            self.flags.set_sz3_otz_sat(true);
+        }
+
+        self.otz = saturated as u16;
+    }
+
+    fn set_mac_ir(&mut self, value: Vector3, lm_flag: bool) {
+        // println!("Setting MAC TO {:016x} {:016x} {:016x}", value.0, value.1, value.2);
+
+        self.mac = value;
+        if self.op_shift() != 0 {
+            self.mac = self.mac.shift_fraction()
+        }
+
+        if self.mac.0 > 0x7ff_ffff_ffff {
+            self.flags.set_mac1_of_pos(true);
+        } else if self.mac.0 < -0x7ff_ffff_ffff {
+            self.flags.set_mac1_of_neg(true);
+        }
+
+        if self.mac.1 > 0x7ff_ffff_ffff {
+            self.flags.set_mac2_of_pos(true);
+        } else if self.mac.1 < -0x7ff_ffff_ffff {
+            self.flags.set_mac2_of_neg(true);
+        }
+
+        if self.mac.2 > 0x7ff_ffff_ffff {
+            self.flags.set_mac3_of_pos(true);
+        } else if self.mac.2 < -0x7ff_ffff_ffff {
+            self.flags.set_mac3_of_neg(true);
+        }
+        
+        self.mac = self.mac.truncate();
+        self.set_ir(self.mac, lm_flag);
+    }
+
+    fn push_color(&mut self, value: Vector3) {
+        println!("PUSHING COLOR {:#?}", value);
+
+        let value = value >> 4;
+
+        let r = value.0.clamp(0, 0xff) as u8;
+        let g = value.1.clamp(0, 0xff) as u8;
+        let b = value.2.clamp(0, 0xff) as u8;
+
+        if r as u64 as i64 != value.0 {
+            self.flags.set_color_r_sat(true);
+        }
+        
+        if g as u64 as i64 != value.1 {
+            self.flags.set_color_g_sat(true);
+        }
+
+        if b as u64 as i64 != value.2 {
+            self.flags.set_color_b_sat(true);
+        }
+
+        self.color_fifo.remove(0);
+        self.color_fifo.push(Color {
+            r, g, b, 
+            code: self.color.code,
+        });
     }
 }
