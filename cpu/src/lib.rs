@@ -3,7 +3,7 @@ mod biu;
 mod branch;
 mod cop;
 mod cop0;
-mod gte;
+pub mod gte;
 mod icache;
 mod instruction;
 mod load_store;

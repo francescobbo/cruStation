@@ -263,10 +263,10 @@ mod tests {
     struct NullBus {}
 
     impl PsxBus for NullBus {
-        fn read<T>(&self, _: u32) -> u32 {
+        fn read<const S: u32>(&self, _: u32) -> u32 {
             0
         }
-        fn write<T>(&self, _: u32, _: u32) {}
+        fn write<const S: u32>(&self, _: u32, _: u32) {}
         fn update_cycles(&self, _: u64) {}
     }
 

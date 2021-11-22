@@ -1,7 +1,6 @@
+use crustationlogger::*;
+
 mod algebra;
-
-// use std::num::Wrapping;
-
 mod division;
 
 use algebra::Axis::{X, Y, Z};
@@ -130,6 +129,8 @@ impl From<Color> for u32 {
 }
 
 pub struct Gte {
+    logger: Logger,
+
     instruction: u32,
 
     // r0-1
@@ -195,6 +196,8 @@ pub struct Gte {
 impl Gte {
     pub fn new() -> Gte {
         Gte {
+            logger: Logger::new("GTE", Level::Info),
+
             instruction: 0,
 
             v0: Vector3::new(),
@@ -630,10 +633,10 @@ impl Gte {
             0x2e => self.avsz4(),
             0x30 => self.rtpt(),
             0x3f => {
-                println!("Unimplemented 0x3f GTE");
+                err!(self.logger, "Unimplemented operation {:02x}", op & 0x3f);
             }
             _ => {
-                panic!("[GTE] Unhandled {:08x}", op);
+                err!(self.logger, "Invalid opcode {:08x}", op);
             }
         }
     }
