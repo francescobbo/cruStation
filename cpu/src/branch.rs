@@ -76,9 +76,6 @@ impl<T: PsxBus> Cpu<T> {
             .wrapping_add((self.current_instruction.simm16() << 2) as u32);
 
         if self.r_rs() != self.r_rt() {
-            if self.pc == 0x80057458 {
-                println!("BRANCH TAKEN");
-            }
             self.branch_delay_slot = Some((self.pc, self.fetch_at_pc()));
             self.pc = value;
         }

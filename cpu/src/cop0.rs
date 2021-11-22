@@ -1,3 +1,5 @@
+use crustationlogger::*;
+
 /// The MIPS R3000A System Coprocessor
 ///
 /// The most important task of this chip is Exception handling.
@@ -85,6 +87,8 @@
 /// - Breakpoints (r3, r5, r7, r8, r9, r11)
 /// - Check read behaviour of r6 (TAR) and garbage (r16 - r31)
 pub struct Cop0 {
+    logger: Logger,
+
     pub regs: [u32; 16],
 
     /// Mirror of SR.b0
@@ -113,7 +117,7 @@ pub struct Cop0 {
 }
 
 /// List of supported COP0 exceptions.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Exception {
     Interrupt = 0,
     AddressErrorLoad = 4,
@@ -162,6 +166,8 @@ impl Cop0 {
         regs[PRID] = 0x0000_0002;
 
         Cop0 {
+            logger: Logger::new("COP0", Level::Info),
+
             regs,
             interrupts_enabled: false,
             is_user: false,
@@ -182,9 +188,12 @@ impl Cop0 {
         }
 
         match index {
-            0..=2 | 4 | 10 | 32..=63 => None,
+            0..=2 | 4 | 10 | 32..=63 => {
+                err!(self.logger, "Read from an unavailable register r{}", index);
+                None
+            }
             16..=31 => {
-                println!("[cop0] Read from garbage r{}", index);
+                warn!(self.logger, "Read from a garbage register r{}", index);
 
                 // TODO: investigate if the weird behaviour of these registers
                 // is actually used by anything.
@@ -199,6 +208,7 @@ impl Cop0 {
     /// An `Err` value returned means that the CPU should raise a CU error.
     pub fn write_reg(&mut self, index: u32, value: u32) -> Result<(), ()> {
         if self.is_user && !self.cop0_enabled && index < 16 {
+            err!(self.logger, "Write attempt in user mode");
             return Err(());
         }
 
@@ -209,14 +219,22 @@ impl Cop0 {
                 self.regs[index] &= !WRITE_MASKS[index];
                 self.regs[index] |= value & WRITE_MASKS[index];
 
+                debug!(self.logger, "Set r{} to {:08x}", index, self.regs[index]);
+
                 if index == STATUS {
                     self.update_status();
                 }
 
                 Ok(())
             }
-            16..=31 => Ok(()),
-            _ => Err(()),
+            16..=31 => {
+                warn!(self.logger, "Write to a garbage register r{}", index);
+                Ok(())
+            }
+            _ => {
+                err!(self.logger, "Write to an unavailable register r{}", index);
+                Err(())
+            }
         }
     }
 
@@ -224,6 +242,7 @@ impl Cop0 {
     /// An `Err` value returned means that the CPU should raise a CU error.
     pub fn execute(&mut self, operation: u32) -> Result<(), Exception> {
         if self.is_user && !self.cop0_enabled {
+            err!(self.logger, "Operation attempt in user mode");
             return Err(Exception::CoprocessorUnusable);
         }
 
@@ -231,7 +250,7 @@ impl Cop0 {
             0x01 | 0x02 | 0x06 | 0x08 => {
                 // TLBR / TLBWI / TLBWR / TLBP
                 // The PlayStation does not have a TLB.
-                println!("Invalid COP0 TLB instruction {:08x}", operation);
+                err!(self.logger, "TLB instructions are not available");
                 Err(Exception::ReservedInstruction)
             }
             0x10 => {
@@ -241,10 +260,13 @@ impl Cop0 {
                 self.regs[STATUS] |= mode;
 
                 self.update_status();
+
+                debug!(self.logger, "RFE. SR: {:08x}", self.regs[STATUS]);
+
                 Ok(())
             }
             _ => {
-                println!("Invalid COP0 instruction {:08x}", operation);
+                err!(self.logger, "Invalid operation {:08x}", operation);
 
                 // Apparently, this should not raise an exception
                 Ok(())
@@ -299,6 +321,15 @@ impl Cop0 {
         };
 
         self.update_status();
+
+        debug!(
+            self.logger,
+            "Entering exception {:?}. SR: {:08x}, CAUSE: {:08x}, EPC: {:08x}",
+            cause,
+            self.regs[STATUS],
+            self.regs[CAUSE],
+            self.regs[EPC]
+        );
     }
 
     /// Returns the PC that is expected to handle a given exception

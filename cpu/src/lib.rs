@@ -3,7 +3,6 @@ mod biu;
 mod branch;
 mod cop;
 mod cop0;
-mod debug;
 mod gte;
 mod icache;
 mod instruction;
@@ -12,6 +11,8 @@ mod scratchpad;
 
 use std::sync::mpsc;
 // use std::time::{SystemTime, UNIX_EPOCH};
+
+use crustationlogger::*;
 
 use biu::BIUCacheControl;
 use cop0::{Cop0, Exception};
@@ -32,37 +33,38 @@ pub enum CpuCommand {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct LoadDelaySlot {
-    register: Option<u32>,
+struct LoadDelaySlot {
+    register: u32,
     value: u32,
 }
 
 pub struct Cpu<T: PsxBus> {
+    logger: Logger,
+
+    pub bus: *const T,
+
+    command_rx: mpsc::Receiver<CpuCommand>,
+    pub command_tx: mpsc::Sender<CpuCommand>,
+
     pub pc: u32,
-    pub regs: [u32; 32],
+    pub regs: [u32; 33],
     pub hi: u32,
     pub lo: u32,
 
     pub cop0: Cop0,
-    pub icache: InstructionCache,
-    dcache: Scratchpad,
-
-    pub current_instruction: Instruction,
-    pub branch_delay_slot: Option<(u32, u32)>,
-    pub load_delay_slot: [LoadDelaySlot; 2],
-    in_delay: bool,
-
-    pub bus: *const T,
     pub gte: Gte,
+
+    icache: InstructionCache,
+    dcache: Scratchpad,
 
     biu_cc: BIUCacheControl,
     i_stat: u32,
     i_mask: u32,
 
-    command_rx: mpsc::Receiver<CpuCommand>,
-    pub command_tx: mpsc::Sender<CpuCommand>,
-    // ips: u64,
-    // ips_start: u128,
+    current_instruction: Instruction,
+    branch_delay_slot: Option<(u32, u32)>,
+    load_delay_slot: [LoadDelaySlot; 2],
+    in_delay: bool,
 }
 
 impl<T: PsxBus> Cpu<T> {
@@ -70,36 +72,40 @@ impl<T: PsxBus> Cpu<T> {
         let (tx, rx) = mpsc::channel();
 
         Cpu {
+            logger: Logger::new("CPU", Level::Info),
             bus: std::ptr::null(),
-            cop0: Cop0::new(),
-            icache: InstructionCache::new(),
-            dcache: Scratchpad::new(),
+
+            command_rx: rx,
+            command_tx: tx,
 
             pc: 0xbfc0_0000,
-            regs: [0; 32],
+            regs: [0; 33],
             hi: 0,
             lo: 0,
-            current_instruction: Instruction(0),
+
+            cop0: Cop0::new(),
             gte: Gte::new(),
-            branch_delay_slot: None,
-            load_delay_slot: [
-                LoadDelaySlot {
-                    register: None,
-                    value: 0,
-                },
-                LoadDelaySlot {
-                    register: None,
-                    value: 0,
-                },
-            ],
-            in_delay: false,
+
+            icache: InstructionCache::new(),
+            dcache: Scratchpad::new(),
 
             biu_cc: BIUCacheControl(0),
             i_stat: 0,
             i_mask: 0,
 
-            command_rx: rx,
-            command_tx: tx,
+            current_instruction: Instruction(0),
+            branch_delay_slot: None,
+            load_delay_slot: [
+                LoadDelaySlot {
+                    register: 32,
+                    value: 0,
+                },
+                LoadDelaySlot {
+                    register: 32,
+                    value: 0,
+                },
+            ],
+            in_delay: false,
             // ips: 0,
             // ips_start: SystemTime::now()
             //     .duration_since(UNIX_EPOCH)
@@ -124,6 +130,7 @@ impl<T: PsxBus> Cpu<T> {
         }
 
         match self.icache.load(self.pc) {
+            Some(ins) => ins,
             None => {
                 // Fetch and store the current instruction
                 let ins: u32;
@@ -143,7 +150,6 @@ impl<T: PsxBus> Cpu<T> {
 
                 ins
             }
-            Some(ins) => ins,
         }
     }
 
@@ -167,7 +173,7 @@ impl<T: PsxBus> Cpu<T> {
         if let Ok(command) = self.command_rx.try_recv() {
             match command {
                 CpuCommand::Break => {
-                    println!();
+                    // println!();
                     // debug::Debugger::enter(self);
                 }
                 CpuCommand::Irq(n) => {
@@ -256,9 +262,11 @@ impl<T: PsxBus> Cpu<T> {
                 0x2A => self.ins_slt(),
                 0x2B => self.ins_sltu(),
                 _ => {
-                    println!(
-                        "Unhandled instruction {:x} at {:08x}",
-                        self.current_instruction.0, self.pc
+                    warn!(
+                        self.logger,
+                        "Unhandled instruction {:08x} at {:08x}",
+                        self.current_instruction.0,
+                        self.pc
                     );
                     self.exception(Exception::ReservedInstruction);
                 }
@@ -303,7 +311,10 @@ impl<T: PsxBus> Cpu<T> {
             0x3A => self.ins_swc2(),
             0x3B => self.ins_swc3(),
             _ => {
-                println!("Unhandled instruction {:x}", self.current_instruction.0);
+                warn!(
+                    self.logger,
+                    "Unhandled instruction {:08x} at {:08x}", self.current_instruction.0, self.pc
+                );
                 self.exception(Exception::ReservedInstruction);
             }
         }
@@ -314,12 +325,10 @@ impl<T: PsxBus> Cpu<T> {
 
     #[inline(always)]
     fn load_delays(&mut self) {
-        if let Some(r) = self.load_delay_slot[0].register {
-            self.regs[r as usize] = self.load_delay_slot[0].value;
-        }
+        self.regs[self.load_delay_slot[0].register as usize] = self.load_delay_slot[0].value;
 
         self.load_delay_slot[0] = self.load_delay_slot[1];
-        self.load_delay_slot[1].register = None;
+        self.load_delay_slot[1].register = 32;
     }
 
     pub fn request_interrupt(&mut self, irq_number: u32) {
@@ -357,8 +366,8 @@ impl<T: PsxBus> Cpu<T> {
 
         self.regs[reg as usize] = value;
 
-        if self.load_delay_slot[0].register == Some(reg) {
-            self.load_delay_slot[0].register = None;
+        if self.load_delay_slot[0].register == reg {
+            self.load_delay_slot[0].register = 32;
         }
     }
 }

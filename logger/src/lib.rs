@@ -7,7 +7,7 @@ pub enum Level {
 }
 
 #[macro_export]
-macro_rules! dbg {
+macro_rules! debug {
     ($logger:expr,$($arg:tt)*) => ({
         let s = std::format!("{}", std::format_args!($($arg)*));
         $logger.write(Level::Debug, s);
@@ -83,7 +83,7 @@ mod test {
         }
 
         fn run(&self) {
-            dbg!(self.logger, "A debugging message");
+            debug!(self.logger, "A debugging message");
             info!(self.logger, "An info message");
             warn!(self.logger, "A warning");
             err!(self.logger, "An error");

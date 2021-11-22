@@ -10,3 +10,4 @@ name = "crustationcpu"
 
 [dependencies]
 bitfield = "0.13.2"
+logger = { path = "../logger" }

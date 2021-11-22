@@ -1,7 +1,11 @@
 use crate::{Cpu, Exception, PsxBus};
 
+use crustationlogger::*;
+
 impl<T: PsxBus> Cpu<T> {
     pub fn interrupt(&mut self) {
+        debug!(self.logger, "Interrupt fired at {:08x}", self.pc);
+
         self.cop0
             .enter_exception(Exception::Interrupt, self.pc, self.in_delay, 0);
 
@@ -9,6 +13,13 @@ impl<T: PsxBus> Cpu<T> {
     }
 
     pub fn exception(&mut self, cause: Exception) {
+        debug!(
+            self.logger,
+            "Entering exception {:?} at {:08x}",
+            cause,
+            self.pc.wrapping_sub(4)
+        );
+
         self.cop0
             .enter_exception(cause, self.pc.wrapping_sub(4), self.in_delay, 0);
 
@@ -16,6 +27,12 @@ impl<T: PsxBus> Cpu<T> {
     }
 
     pub fn coprocessor_exception(&mut self, cop_number: u32) {
+        err!(
+            self.logger,
+            "Coprocessor Unusable Exception for COP{}",
+            cop_number
+        );
+
         self.cop0.enter_exception(
             Exception::CoprocessorUnusable,
             self.pc.wrapping_sub(4),
@@ -92,31 +109,39 @@ impl<T: PsxBus> Cpu<T> {
         if !self.cop0.cop0_enabled {
             self.coprocessor_exception(0);
         } else {
-            println!("Starting LWC0 with {:08x}", self.current_instruction.0);
+            warn!(self.logger, "lwc0 was used ({:08x})", self.pc);
         }
     }
 
     pub fn ins_swc0(&mut self) {
         if !self.cop0.cop0_enabled {
             self.coprocessor_exception(0);
+        } else {
+            warn!(self.logger, "swc0 was used ({:08x})", self.pc);
         }
     }
 
     pub fn ins_cop1(&mut self) {
         if !self.cop0.cop1_enabled {
             self.coprocessor_exception(1);
+        } else {
+            warn!(self.logger, "cop1 was used ({:08x})", self.pc);
         }
     }
 
     pub fn ins_lwc1(&mut self) {
         if !self.cop0.cop1_enabled {
             self.coprocessor_exception(1);
+        } else {
+            warn!(self.logger, "lwc1 was used ({:08x})", self.pc);
         }
     }
 
     pub fn ins_swc1(&mut self) {
         if !self.cop0.cop1_enabled {
             self.coprocessor_exception(1);
+        } else {
+            warn!(self.logger, "swc1 was used ({:08x})", self.pc);
         }
     }
 
@@ -152,8 +177,9 @@ impl<T: PsxBus> Cpu<T> {
                         .write_reg(self.current_instruction.rd() + 32, self.r_rt());
                 }
                 _ => {
-                    println!(
-                        "[GTE] Invalid CPU opcode {:08x}",
+                    err!(
+                        self.logger,
+                        "Invalid GTE opcode {:08x}",
                         self.current_instruction.0
                     );
                 }
@@ -185,19 +211,24 @@ impl<T: PsxBus> Cpu<T> {
     pub fn ins_cop3(&mut self) {
         if !self.cop0.cop3_enabled {
             self.coprocessor_exception(3);
+        } else {
+            warn!(self.logger, "cop3 was used ({:08x})", self.pc);
         }
     }
 
     pub fn ins_lwc3(&mut self) {
         if !self.cop0.cop3_enabled {
             self.coprocessor_exception(3);
+        } else {
+            warn!(self.logger, "lwc3 was used ({:08x})", self.pc);
         }
     }
 
-    /// Raises a ReservedInstruction exception, as there is no COP3
     pub fn ins_swc3(&mut self) {
         if !self.cop0.cop3_enabled {
             self.coprocessor_exception(3);
+        } else {
+            warn!(self.logger, "swc3 was used ({:08x})", self.pc);
         }
     }
 }

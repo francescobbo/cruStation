@@ -28,7 +28,7 @@ impl<B: PsxBus> Cpu<B> {
 
     pub fn ins_lwl(&mut self) {
         let addr = self.ls_address();
-        let cur_v = if self.load_delay_slot[0].register == Some(self.current_instruction.rt()) {
+        let cur_v = if self.load_delay_slot[0].register == self.current_instruction.rt() {
             self.load_delay_slot[0].value
         } else {
             self.r_rt()
@@ -78,7 +78,7 @@ impl<B: PsxBus> Cpu<B> {
 
     pub fn ins_lwr(&mut self) {
         let addr = self.ls_address();
-        let cur_v = if self.load_delay_slot[0].register == Some(self.current_instruction.rt()) {
+        let cur_v = if self.load_delay_slot[0].register == self.current_instruction.rt() {
             self.load_delay_slot[0].value
         } else {
             self.r_rt()
@@ -162,12 +162,12 @@ impl<B: PsxBus> Cpu<B> {
             return;
         }
 
-        if self.load_delay_slot[0].register == Some(reg) {
-            self.load_delay_slot[0].register = None;
+        if self.load_delay_slot[0].register == reg {
+            self.load_delay_slot[0].register = 32;
         }
 
         self.load_delay_slot[1] = LoadDelaySlot {
-            register: Some(reg),
+            register: reg,
             value,
         };
     }
