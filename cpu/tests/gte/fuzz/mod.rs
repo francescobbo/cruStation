@@ -88,17 +88,17 @@ fn run_gte_fuzz_suite(tests: Vec<GteFuzzTest>) {
         println!("Running test {}: {}", n, test.name);
         assert_eq!(run_gte_fuzz_test(test), true);
     } else {
-        let mut success = true;
+        let mut successes = 0;
 
         for (idx, test) in tests.iter().enumerate() {
             println!("Running test {}: {}", idx, test.name);
-            if !run_gte_fuzz_test(test) {
-                success = false;
+            if run_gte_fuzz_test(test) {
+                successes += 1;
             }
             println!()
         }
 
-        assert_eq!(success, true);
+        assert_eq!(successes, tests.len());
     }
 }
 

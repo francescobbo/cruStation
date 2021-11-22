@@ -122,6 +122,30 @@ impl ops::Index<Axis> for Vector3 {
     }
 }
 
+impl ops::Index<usize> for Vector3 {
+    type Output = i64;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            0 => &self.0,
+            1 => &self.1,
+            2 => &self.2,
+            _ => unreachable!()
+        }
+    }
+}
+
+impl ops::IndexMut<usize> for Vector3 {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match index {
+            0 => &mut self.0,
+            1 => &mut self.1,
+            2 => &mut self.2,
+            _ => unreachable!()
+        }
+    }
+}
+
 impl ops::IndexMut<Axis> for Vector3 {
     fn index_mut(&mut self, index: Axis) -> &mut Self::Output {
         match index {
@@ -236,5 +260,62 @@ impl ops::Mul<Vector3> for Matrix3 {
             self[1][X] * vec[X] + self[1][Y] * vec[Y] + self[1][Z] * vec[Z],
             self[2][X] * vec[X] + self[2][Y] * vec[Y] + self[2][Z] * vec[Z],
         )
+    }
+}
+
+impl Matrix3 {
+    pub fn multiply_add(&self, mul: Vector3, add: Vector3) -> (Vector3, super::Flags) {
+        let mut flags = super::Flags(0);
+        let mut ret = Vector3(0, 0, 0);
+
+        for i in 0..3 {
+            let mut tmp: i64;
+            let mut mulr: [i32; 3] = [0; 3];
+
+            tmp = add[i] << 12;
+
+            mulr[0] = (self[i][0] * mul[0]) as i32;
+            mulr[1] = (self[i][1] * mul[1]) as i32;
+            mulr[2] = (self[i][2] * mul[2]) as i32;
+
+            let v = tmp + mulr[0] as i64;
+            if v >= (1 << 43) {
+                flags.set_mac1_of_pos(true);
+            }
+            if v < -(1 << 43) {
+                flags.set_mac1_of_neg(true);
+            }
+
+            tmp = ((v << 20) as i64) >> 20;
+
+            // if(crv == CRVectors.FC) {
+            //     Lm_B(i, tmp >> sf, false);
+            //     tmp = 0;
+            // }
+
+            let v = tmp + mulr[1] as i64;
+            if v >= (1 << 43) {
+                flags.set_mac1_of_pos(true);
+            }
+            if v < -(1 << 43) {
+                flags.set_mac1_of_neg(true);
+            }
+
+            tmp = ((v << 20) as i64) >> 20;
+
+            let v = tmp + mulr[2] as i64;
+            if v >= (1 << 43) {
+                flags.set_mac1_of_pos(true);
+            }
+            if v < -(1 << 43) {
+                flags.set_mac1_of_neg(true);
+            }
+
+            tmp = ((v << 20) as i64) >> 20;
+
+            ret[i] = tmp;
+        }
+
+        (ret, flags)
     }
 }

@@ -149,20 +149,19 @@ impl Gte {
     }
 
     pub fn ncs(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm());
+        let (res, flags) = self.light.multiply_add(self.v0, Vector3::new());
+        self.flags.0 |= flags.0;
 
-        self.set_mac_ir(
-            (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm(),
-        );
+        self.set_mac_ir(res, self.op_lm());
 
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
+        println!("BG: {:#?}", self.background_color);
+
+        let (res, flags) = self.light_color.multiply_add(self.ir, self.background_color << 12);
+        self.flags.0 |= flags.0;
+
+        self.set_mac_ir(res, self.op_lm());
+
+        self.push_color(self.mac);
     }
 
     pub fn nccs(&mut self) {
@@ -175,13 +174,7 @@ impl Gte {
 
         self.set_mac_ir((self.ir * self.color.as_vec()) << 4, self.op_lm());
 
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
+        self.push_color(self.mac);
     }
 
     pub fn ncds(&mut self) {
@@ -258,24 +251,27 @@ impl Gte {
     }
 
     fn set_mac_ir(&mut self, value: Vector3, lm_flag: bool) {
-        println!("Setting MAC TO {:016x} {:016x} {:016x}", value.0, value.1, value.2);
+        println!("Setting MAC TO {:#x?}", value);
         self.mac = value;
 
-        if self.mac.0 >= 0x800_0000_0000 {
+        let max = 1_i64 << 43;
+        let min = -(1_i64 << 43);
+
+        if self.mac.0 >= max {
             self.flags.set_mac1_of_pos(true);
-        } else if self.mac.0 < -0x800_0000_0000 {
+        } else if self.mac.0 < min {
             self.flags.set_mac1_of_neg(true);
         }
 
-        if self.mac.1 >= 0x800_0000_0000 {
+        if self.mac.1 >= max {
             self.flags.set_mac2_of_pos(true);
-        } else if self.mac.1 < -0x800_0000_0000 {
+        } else if self.mac.1 < min {
             self.flags.set_mac2_of_neg(true);
         }
 
-        if self.mac.2 >= 0x800_0000_0000 {
+        if self.mac.2 >= max {
             self.flags.set_mac3_of_pos(true);
-        } else if self.mac.2 < -0x800_0000_0000 {
+        } else if self.mac.2 < min {
             self.flags.set_mac3_of_neg(true);
         }
 

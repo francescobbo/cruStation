@@ -186,7 +186,7 @@ pub struct Gte {
 impl Gte {
     pub fn new() -> Gte {
         Gte {
-            logger: Logger::new("GTE", Level::Info),
+            logger: Logger::new("GTE", Level::Debug),
 
             instruction: 0,
 
@@ -441,16 +441,16 @@ impl Gte {
                 self.r23 = value;
             }
             24 => {
-                self.mac0 = value as i64;
+                self.mac0 = value as i32 as i64;
             }
             25 => {
-                self.mac.0 = value as i64;
+                self.mac.0 = value as i32 as i64;
             }
             26 => {
-                self.mac.1 = value as i64;
+                self.mac.1 = value as i32 as i64;
             }
             27 => {
-                self.mac.2 = value as i64;
+                self.mac.2 = value as i32 as i64;
             }
             28 => {
                 let red = value & 0x1f;
@@ -533,13 +533,13 @@ impl Gte {
                 self.light[2][Z] = lt33 as i16 as i64;
             }
             45 => {
-                self.background_color.0 = value as i64;
+                self.background_color.0 = value as i32 as i64;
             }
             46 => {
-                self.background_color.1 = value as i64;
+                self.background_color.1 = value as i32 as i64;
             }
             47 => {
-                self.background_color.2 = value as i64;
+                self.background_color.2 = value as i32 as i64;
             }
             /* Light color matrix */
             48 => {
@@ -571,13 +571,13 @@ impl Gte {
                 self.light_color[2][Z] = lc33 as i16 as i64;
             }
             53 => {
-                self.far_color.0 = value as i64;
+                self.far_color.0 = value as i32 as i64;
             }
             54 => {
-                self.far_color.1 = value as i64;
+                self.far_color.1 = value as i32 as i64;
             }
             55 => {
-                self.far_color.2 = value as i64;
+                self.far_color.2 = value as i32 as i64;
             }
             56 => {
                 self.ofx = value;
@@ -613,5 +613,18 @@ impl Gte {
 
     pub fn op_shift(&self) -> bool {
         self.instruction & (1 << 19) != 0
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn background_color_is_signed() {
+        let mut gte = Gte::new();
+
+        gte.write_reg(45, 0xffff_ffff);
+        assert_eq!(gte.background_color.0, -1);
     }
 }
