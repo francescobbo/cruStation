@@ -1,10 +1,14 @@
 use crustationlogger::*;
+use bitfield::bitfield;
 
 mod algebra;
+mod color;
 mod division;
+mod operations;
 
 use algebra::Axis::{X, Y, Z};
 use algebra::*;
+use color::*;
 
 /**
     Registers  | Type  | Name             | Description
@@ -83,49 +87,35 @@ impl Clamp for i32 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub code: u8,
-}
+bitfield! {
+    struct Flags(u32);
+    impl Debug;
 
-impl Color {
-    fn new() -> Color {
-        Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            code: 0,
-        }
-    }
+    ir0_sat, set_ir0_sat: 12;
+    ir1_sat, set_ir1_sat: 24;
+    ir2_sat, set_ir2_sat: 23;
+    ir3_sat, set_ir3_sat: 22;
 
-    fn from(value: u32) -> Color {
-        Color {
-            r: value as u8,
-            g: (value >> 8) as u8,
-            b: (value >> 16) as u8,
-            code: (value >> 24) as u8,
-        }
-    }
+    color_r_sat, set_color_r_sat: 21;
+    color_g_sat, set_color_g_sat: 20;
+    color_b_sat, set_color_b_sat: 19;
 
-    fn as_u32(&self) -> u32 {
-        self.r as u32
-            | ((self.g as u32) << 8)
-            | ((self.b as u32) << 16)
-            | ((self.code as u32) << 24)
-    }
+    mac0_of_pos, set_mac0_of_pos: 16;
+    mac0_of_neg, set_mac0_of_neg: 15;
+    mac1_of_pos, set_mac1_of_pos: 30;
+    mac1_of_neg, set_mac1_of_neg: 27;
+    mac2_of_pos, set_mac2_of_pos: 29;
+    mac2_of_neg, set_mac2_of_neg: 26;
+    mac3_of_pos, set_mac3_of_pos: 28;
+    mac3_of_neg, set_mac3_of_neg: 25;
 
-    fn as_vec(&self) -> Vector3 {
-        Vector3(self.r as i64, self.g as i64, self.b as i64)
-    }
-}
+    sx2_sat, set_sx2_sat: 14;
+    sy2_sat, set_sy2_sat: 13;
 
-impl From<Color> for u32 {
-    fn from(color: Color) -> u32 {
-        color.as_u32()
-    }
+    sz3_otz_sat, set_sz3_otz_sat: 18;
+    division_overflow, set_division_overflow: 17;
+
+    error, set_error: 31;
 }
 
 pub struct Gte {
@@ -190,7 +180,7 @@ pub struct Gte {
     // r62
     zsf4: i16,
     // r63
-    flags: u32,
+    flags: Flags,
 }
 
 impl Gte {
@@ -227,7 +217,7 @@ impl Gte {
             dqb: 0,
             zsf3: 0,
             zsf4: 0,
-            flags: 0,
+            flags: Flags(0),
         }
     }
 
@@ -353,7 +343,10 @@ impl Gte {
             60 => self.dqb as u32,
             61 => self.zsf3 as u32,
             62 => self.zsf4 as u32,
-            63 => self.flags,
+            63 => {
+                self.flags.set_error(self.flags.0 & 0x7f87_e000 != 0);
+                self.flags.0
+            },
             _ => unreachable!("{}", index),
         };
 
@@ -608,36 +601,9 @@ impl Gte {
                 self.zsf4 = value as i16;
             }
             63 => {
-                self.flags = value & !0x8000_0fff;
-                let errors = value & 0x7f87_e000 != 0;
-                if errors {
-                    self.flags |= 1 << 31;
-                }
+                self.flags.0 = value & !0x8000_0fff;
             }
             _ => unreachable!(),
-        }
-    }
-
-    pub fn execute(&mut self, op: u32) {
-        self.instruction = op;
-
-        match op & 0x3f {
-            0x01 => self.rtps(0, true),
-            0x06 => self.nclip(),
-            0x0c => self.op(),
-            0x10 => self.dpcs(),
-            0x13 => self.ncds(),
-            0x1b => self.nccs(),
-            0x1e => self.ncs(),
-            0x2d => self.avsz3(),
-            0x2e => self.avsz4(),
-            0x30 => self.rtpt(),
-            0x3f => {
-                err!(self.logger, "Unimplemented operation {:02x}", op & 0x3f);
-            }
-            _ => {
-                err!(self.logger, "Invalid opcode {:08x}", op);
-            }
         }
     }
 
@@ -647,89 +613,6 @@ impl Gte {
 
     pub fn op_shift(&self) -> u32 {
         self.instruction & (1 << 19)
-    }
-
-    pub fn rtps(&mut self, v_idx: usize, finalize: bool) {
-        let vec = if v_idx == 0 {
-            &self.v0
-        } else if v_idx == 1 {
-            &self.v1
-        } else {
-            &self.v2
-        };
-
-        let dots = Vector3(
-            self.rotation[0].dot(vec),
-            self.rotation[1].dot(vec),
-            self.rotation[2].dot(vec),
-        );
-
-        let first = (self.translation << 12) + dots;
-        self.set_mac_ir(first, self.op_lm() != 0);
-
-        let new_z = ((first.2 >> 12) as i32).clamp(0, 0xffff) as u16;
-        self.z_fifo.remove(0);
-        self.z_fifo.push(new_z);
-
-        let (h_over_s3z, _) = division::division(self.h, new_z as u16);
-        let h_over_s3z = h_over_s3z as i32 as i64;
-        let mut x = h_over_s3z * self.ir.0 + (self.ofx as i32 as i64);
-        let mut y = h_over_s3z * self.ir.1 + (self.ofy as i32 as i64);
-
-        self.mac0 = y;
-        x >>= 16;
-        y >>= 16;
-
-        self.xy_fifo[0] = self.xy_fifo[1];
-        self.xy_fifo[1] = self.xy_fifo[2];
-        self.xy_fifo[2] = Vector3(
-            x.clamp(-0x400, 0x3ff) as i32 as i64,
-            y.clamp(-0x400, 0x3ff) as i32 as i64,
-            0,
-        );
-
-        if finalize {
-            self.mac0 = h_over_s3z * (self.dqa as i32 as i64) + (self.dqb as i32 as i64);
-            self.ir0 = (self.mac0 >> 12).clamp(0, 0x1000) as i16;
-        }
-    }
-
-    pub fn rtpt(&mut self) {
-        self.rtps(0, false);
-        self.rtps(1, false);
-        self.rtps(2, true);
-    }
-
-    pub fn nclip(&mut self) {
-        let sx0 = self.xy_fifo[0][X] as i64;
-        let sy0 = self.xy_fifo[0][Y] as i64;
-
-        let sx1 = self.xy_fifo[1][X] as i64;
-        let sy1 = self.xy_fifo[1][Y] as i64;
-
-        let sx2 = self.xy_fifo[2][X] as i64;
-        let sy2 = self.xy_fifo[2][Y] as i64;
-
-        let mac0 = sx0 * sy1 + sx1 * sy2 + sx2 * sy0 - sx0 * sy2 - sx1 * sy0 - sx2 * sy1;
-        if mac0 > (2_i64.pow(31)) {
-            self.flags = 0x80010000;
-        } else if mac0 < -(2_i64.pow(31)) {
-            self.flags = 0x80008000;
-        } else {
-            self.flags = 0;
-        }
-
-        self.mac0 = mac0 as i64;
-    }
-
-    pub fn op(&mut self) {
-        self.mac = self.ir.cross(&self.rotation.diagonal());
-        if self.op_shift() != 0 {
-            self.mac = self.mac.shift_fraction();
-        }
-
-        self.ir = self.mac;
-        self.saturate_ir(self.op_lm() != 0);
     }
 
     fn set_ir(&mut self, value: Vector3, lm_flag: bool) {
@@ -753,106 +636,6 @@ impl Gte {
         self.set_ir(self.mac, lm_flag);
     }
 
-    /// Linearly interpolates the main color with the far color.
-    /// The result is pushed to the color FIFO.
-    ///
-    /// Inputs:
-    ///   - Color (8, 8, 8, )
-    ///   - Far color (1, 27, 4)
-    ///   - IR0
-    ///
-    /// Outputs:
-    ///   - Pushes to Color FIFO
-    ///
-    /// Uses:
-    ///   - MAC1/2/3
-    ///   - IR1/2/3
-    ///
-    /// `MainColor + (FarColor - MainColor) * IR0`
-    pub fn dpcs(&mut self) {
-        // Align bits to Far color (lower 4 bits are "fraction")
-        let rgb = self.color.as_vec() << 4;
-
-        // ir = far - rgb
-        self.set_mac_ir((self.far_color << 12) - (rgb << 12), false);
-
-        // mac = rgb + (far - rgb) * ir0
-        self.set_mac_ir((rgb << 12) + self.ir * self.ir0 as i64, self.op_lm() != 0);
-
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
-    }
-
-    pub fn ncs(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
-
-        self.set_mac_ir(
-            (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0,
-        );
-
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
-    }
-
-    pub fn nccs(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
-
-        self.set_mac_ir(
-            (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0,
-        );
-
-        self.set_mac_ir((self.ir * self.color.as_vec()) << 4, self.op_lm() != 0);
-
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
-    }
-
-    pub fn ncds(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm() != 0);
-
-        self.set_mac_ir(
-            (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm() != 0,
-        );
-
-        let orig_ir = self.ir;
-
-        self.set_mac_ir(
-            (self.far_color << 12) - (self.color.as_vec() << 4) * self.ir,
-            false,
-        );
-
-        self.set_mac_ir(
-            (self.color.as_vec() << 4) * orig_ir + self.ir * (self.ir0 as i64),
-            self.op_lm() != 0,
-        );
-
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
-    }
-
     fn saturate_ir(&mut self, lm: bool) {
         let min = if lm { 0 } else { -0x8000 };
 
@@ -860,40 +643,18 @@ impl Gte {
         let f1 = self.ir.1.clamp(min, 0x7fff);
         let f2 = self.ir.2.clamp(min, 0x7fff);
 
-        self.flags = 0;
+        self.flags.0 = 0;
 
         if f0 != self.ir.0 {
-            self.flags |= 1 << 24
+            self.flags.set_ir1_sat(true);
         }
         if f1 != self.ir.1 {
-            self.flags |= 1 << 23
+            self.flags.set_ir2_sat(true);
         }
         if f2 != self.ir.2 {
-            self.flags |= 1 << 22
-        }
-        if (self.flags & !(1 << 22)) != 0 {
-            self.flags |= 1 << 31
+            self.flags.set_ir3_sat(true);
         }
 
         self.ir = Vector3(f0, f1, f2);
-    }
-
-    pub fn avsz3(&mut self) {
-        let value = self.zsf3 as i64;
-        let sum = (self.z_fifo[1] as i64)
-            .wrapping_add(self.z_fifo[2] as i64)
-            .wrapping_add(self.z_fifo[3] as i64);
-        self.mac0 = value * sum;
-        self.otz = (value >> 12).clamp(0, 0xffff) as u16;
-    }
-
-    pub fn avsz4(&mut self) {
-        let value = self.zsf4 as i64;
-        let sum = (self.z_fifo[0] as i64)
-            .wrapping_add(self.z_fifo[1] as i64)
-            .wrapping_add(self.z_fifo[2] as i64)
-            .wrapping_add(self.z_fifo[3] as i64);
-        self.mac0 = value * sum;
-        self.otz = (value >> 12).clamp(0, 0xffff) as u16;
     }
 }
