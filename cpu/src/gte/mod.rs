@@ -67,10 +67,7 @@ bitfield! {
     error, set_error: 31;
 }
 
-#[derive(Copy, Clone, Debug)]
-struct Matrix {
-    mx: [[i16; 3]; 3],
-}
+type Matrix = [[i16; 3]; 3];
 
 #[derive(Copy, Clone, Debug)]
 struct RGB {
@@ -138,9 +135,9 @@ impl Gte {
 
             cr: [0; 32],
 
-            rotation: Matrix { mx: [[0; 3]; 3] },
-            light: Matrix { mx: [[0; 3]; 3] },
-            color: Matrix { mx: [[0; 3]; 3] },
+            rotation: [[0; 3]; 3],
+            light: [[0; 3]; 3],
+            color: [[0; 3]; 3],
 
             t: [0; 4],
             b: [0; 4],
@@ -352,23 +349,23 @@ impl Gte {
 
                 match index {
                     0 => {
-                        matrix.mx[0][0] = value as i16;
-                        matrix.mx[0][1] = (value >> 16) as i16;
+                        matrix[0][0] = value as i16;
+                        matrix[0][1] = (value >> 16) as i16;
                     }
                     1 => {
-                        matrix.mx[0][2] = value as i16;
-                        matrix.mx[1][0] = (value >> 16) as i16;
+                        matrix[0][2] = value as i16;
+                        matrix[1][0] = (value >> 16) as i16;
                     }
                     2 => {
-                        matrix.mx[1][1] = value as i16;
-                        matrix.mx[1][2] = (value >> 16) as i16;
+                        matrix[1][1] = value as i16;
+                        matrix[1][2] = (value >> 16) as i16;
                     }
                     3 => {
-                        matrix.mx[2][0] = value as i16;
-                        matrix.mx[2][1] = (value >> 16) as i16;
+                        matrix[2][0] = value as i16;
+                        matrix[2][1] = (value >> 16) as i16;
                     }
                     4 => {
-                        matrix.mx[2][2] = value as i16;
+                        matrix[2][2] = value as i16;
                     }
                     _ => unreachable!(),
                 }
@@ -570,7 +567,7 @@ impl Gte {
         }
 
         if self.flags.0 & 0x7f87_e000 != 0 {
-            self.flags.0 |= 1 << 31;
+            self.flags.set_error(true);
         }
 
         self.cr[31] = self.flags.0;

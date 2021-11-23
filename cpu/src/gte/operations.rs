@@ -25,8 +25,8 @@ impl Gte {
         (self.current_instruction >> 17) & 0x3
     }
 
-    fn v_i(&self) -> u32 {
-        (self.current_instruction >> 15) & 0x3
+    fn v_i(&self) -> usize {
+        ((self.current_instruction >> 15) & 0x3) as usize
     }
 
     fn cv(&self) -> &[i32; 4] {
@@ -44,9 +44,9 @@ impl Gte {
             [self.ir[1], self.ir[2], self.ir[3], 0]
         } else {
             [
-                self.vectors[self.v_i() as usize][0],
-                self.vectors[self.v_i() as usize][1],
-                self.vectors[self.v_i() as usize][2],
+                self.vectors[self.v_i()][0],
+                self.vectors[self.v_i()][1],
+                self.vectors[self.v_i()][2],
                 0,
             ]
         }
@@ -64,24 +64,20 @@ impl Gte {
         sign_x_to_s64!(44, value)
     }
 
-    fn lm_b(&mut self, which: usize, mut value: i32, lm: bool) -> i16 {
+    fn lm_b(&mut self, which: usize, value: i32, lm: bool) -> i16 {
         let min: i32 = if lm { 0 } else { -0x8000 };
         if value < min {
-            // set flag here
             self.flags.0 |= 1 << (24 - which);
-            value = min;
-        }
-
-        if value > 0x7fff {
-            // Set flag here
+            min as i16
+        } else if value > 0x7fff {
             self.flags.0 |= 1 << (24 - which);
-            value = 0x7fff;
+            0x7fff
+        } else {
+            value as i16
         }
-
-        value as i16
     }
 
-    fn lm_b_ptz(&mut self, which: usize, mut value: i32, ftv_value: i32, lm: bool) -> i16 {
+    fn lm_b_ptz(&mut self, which: usize, value: i32, ftv_value: i32, lm: bool) -> i16 {
         let tmp: i32 = if lm { 1 << 15 } else { 0 };
 
         if ftv_value < -0x8000 {
@@ -93,88 +89,73 @@ impl Gte {
         }
 
         if value < (-0x8000 + tmp) {
-            value = -0x8000 + tmp;
+            (-0x8000 + tmp) as i16
+        } else if value > 0x7fff {
+            0x7fff
+        } else {
+            value as i16
         }
-
-        if value > 0x7fff {
-            value = 0x7fff;
-        }
-
-        value as i16
     }
 
-    fn lm_c(&mut self, which: usize, mut value: i32) -> u8 {
-        if value & !0xff != 0 {
-            // Set flag here
-            self.flags.0 |= 1 << (21 - which); // Tested with GPF
-
-            if value < 0 {
-                value = 0;
-            }
-
-            if value > 255 {
-                value = 255;
-            }
+    fn lm_c(&mut self, which: usize, value: i32) -> u8 {
+        if value > 0xff {
+            self.flags.0 |= 1 << (21 - which);
+            0xff
+        } else if value < 0 {
+            self.flags.0 |= 1 << (21 - which);
+            0
+        } else {
+            value as u8
         }
-
-        value as u8
     }
 
-    fn lm_d(&mut self, mut value: i32, unchained: bool) -> i32 {
+    fn lm_d(&mut self, value: i32, unchained: bool) -> i32 {
         // Not sure if we should have it as int64, or just chain on to and special case when the F flags are set.
         if !unchained {
-            if self.flags.0 & (1 << 15) != 0 {
-                self.flags.0 |= 1 << 18;
+            if self.flags.mac0_of_neg() {
+                self.flags.set_sz3_otz_sat(true);
                 return 0;
             }
 
-            if self.flags.0 & (1 << 16) != 0 {
-                self.flags.0 |= 1 << 18;
+            if self.flags.mac0_of_pos() {
+                self.flags.set_sz3_otz_sat(true);
                 return 0xffff;
             }
         }
 
         if value < 0 {
-            // Set flag here
-            value = 0;
-            self.flags.0 |= 1 << 18; // Tested with AVSZ3
+            self.flags.set_sz3_otz_sat(true);
+            0
         } else if value > 0xffff {
-            // Set flag here.
-            value = 0xffff;
-            self.flags.0 |= 1 << 18; // Tested with AVSZ3
+            self.flags.set_sz3_otz_sat(true);
+            0xffff
+        } else {
+            value
         }
-
-        value
     }
 
-    fn lm_g(&mut self, which: usize, mut value: i32) -> i16 {
+    fn lm_g(&mut self, which: usize, value: i32) -> i16 {
         if value < -0x400 {
-            // Set flag here
-            value = -0x400;
             self.flags.0 |= 1 << (14 - which);
-        }
-
-        if value > 0x3ff {
-            // Set flag here.
-            value = 0x3ff;
+            -0x400
+        } else if value > 0x3ff {
             self.flags.0 |= 1 << (14 - which);
+            0x3ff
+        } else {
+            value as i16
         }
-
-        value as i16
     }
 
-    fn lm_h(&mut self, mut value: i32) -> i16 {
+    fn lm_h(&mut self, value: i32) -> i16 {
         if value < 0 {
-            value = 0;
-            self.flags.0 |= 1 << 12;
+            self.flags.set_ir0_sat(true);
+            0
+        } else if value > 0x1000 {
+            self.flags.set_ir0_sat(true);
+            0x1000
+        } else {
+            value as i16
         }
-
-        if value > 0x1000 {
-            value = 0x1000;
-            self.flags.0 |= 1 << 12;
-        }
-
-        value as i16
     }
 
     fn multiply_matrix_by_vector(
@@ -190,9 +171,9 @@ impl Gte {
 
             let mut tmp = (crv[i] as i64) << 12;
 
-            mulr[0] = matrix.mx[i][0] as i32 * v[0] as i32;
-            mulr[1] = matrix.mx[i][1] as i32 * v[1] as i32;
-            mulr[2] = matrix.mx[i][2] as i32 * v[2] as i32;
+            mulr[0] = matrix[i][0] as i32 * v[0] as i32;
+            mulr[1] = matrix[i][1] as i32 * v[1] as i32;
+            mulr[2] = matrix[i][2] as i32 * v[2] as i32;
 
             tmp = self.a_mv(i, tmp + mulr[0] as i64);
             // TODO: this should be a ref
@@ -224,9 +205,9 @@ impl Gte {
 
             tmp[i] = (crv[i] as i64) << 12;
 
-            mulr[0] = matrix.mx[i][0] as i32 * v[0] as i32;
-            mulr[1] = matrix.mx[i][1] as i32 * v[1] as i32;
-            mulr[2] = matrix.mx[i][2] as i32 * v[2] as i32;
+            mulr[0] = matrix[i][0] as i32 * v[0] as i32;
+            mulr[1] = matrix[i][1] as i32 * v[1] as i32;
+            mulr[2] = matrix[i][2] as i32 * v[2] as i32;
 
             tmp[i] = self.a_mv(i, tmp[i] + mulr[0] as i64);
             tmp[i] = self.a_mv(i, tmp[i] + mulr[1] as i64);
@@ -248,12 +229,12 @@ impl Gte {
     fn f(&mut self, value: i64) -> i64 {
         if value < -0x8000_0000 {
             // flag set here
-            self.flags.0 |= 1 << 15;
+            self.flags.set_mac0_of_neg(true);
         }
 
         if value > 0x7fff_ffff {
             // flag set here
-            self.flags.0 |= 1 << 16;
+            self.flags.set_mac0_of_pos(true);
         }
 
         value
@@ -295,7 +276,7 @@ impl Gte {
         let h_div_sz = h_div_sz as i64;
 
         if of {
-            self.flags.0 |= 1 << 17;
+            self.flags.set_division_overflow(true);
         }
 
         self.transform_xy(h_div_sz);
@@ -311,14 +292,14 @@ impl Gte {
     }
 
     pub(super) fn op(&mut self) {
-        self.mac[1] = ((self.rotation.mx[1][1] as i32 * self.ir[3] as i32)
-            - (self.rotation.mx[2][2] as i32 * self.ir[2] as i32))
+        self.mac[1] = ((self.rotation[1][1] as i32 * self.ir[3] as i32)
+            - (self.rotation[2][2] as i32 * self.ir[2] as i32))
             >> self.sf();
-        self.mac[2] = ((self.rotation.mx[2][2] as i32 * self.ir[1] as i32)
-            - (self.rotation.mx[0][0] as i32 * self.ir[3] as i32))
+        self.mac[2] = ((self.rotation[2][2] as i32 * self.ir[1] as i32)
+            - (self.rotation[0][0] as i32 * self.ir[3] as i32))
             >> self.sf();
-        self.mac[3] = ((self.rotation.mx[0][0] as i32 * self.ir[2] as i32)
-            - (self.rotation.mx[1][1] as i32 * self.ir[1] as i32))
+        self.mac[3] = ((self.rotation[0][0] as i32 * self.ir[2] as i32)
+            - (self.rotation[1][1] as i32 * self.ir[1] as i32))
             >> self.sf();
 
         self.mac_to_ir(self.lm());
@@ -337,7 +318,7 @@ impl Gte {
             let h_div_sz = h_div_sz as i64;
 
             if of {
-                self.flags.0 |= 1 << 17;
+                self.flags.set_division_overflow(true);
             }
 
             self.transform_xy(h_div_sz);
@@ -549,17 +530,15 @@ impl Gte {
             3 => {
                 warn!(self.logger, "Use of bogus matrix in mvmva");
 
-                Matrix {
-                    mx: [
-                        [
-                            -(self.rgb.r as i16) << 4,
-                            (self.rgb.r as i16) << 4,
-                            self.ir[0],
-                        ],
-                        [self.cr[1] as i16, self.cr[1] as i16, self.cr[1] as i16],
-                        [self.cr[2] as i16, self.cr[2] as i16, self.cr[2] as i16],
+                [
+                    [
+                        -(self.rgb.r as i16) << 4,
+                        (self.rgb.r as i16) << 4,
+                        self.ir[0],
                     ],
-                }
+                    [self.cr[1] as i16, self.cr[1] as i16, self.cr[1] as i16],
+                    [self.cr[2] as i16, self.cr[2] as i16, self.cr[2] as i16],
+                ]
             }
             _ => unreachable!(),
         };
