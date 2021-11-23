@@ -1,5 +1,4 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::mem::size_of;
 
 pub trait ByteSerialized {
     fn read<const S: u32>(&self, addr: u32) -> u32;

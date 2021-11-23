@@ -1,16 +1,10 @@
 use bitfield::bitfield;
 use crustationlogger::*;
 
-mod algebra;
-mod color;
 mod division;
 mod operations;
 
-use algebra::Axis::{X, Y, Z};
-use algebra::*;
-use color::*;
-
-/**
+/*
     Registers  | Type  | Name             | Description
     -----------|-------|------------------|---
     cop2r0-1   | 3xS16 | VXY0,VZ0         | Vector 0 (X,Y,Z)
@@ -41,51 +35,6 @@ use color::*;
     cop2r61-62 | 2xS16 | ZSF3,ZSF4        | Average Z scale factors          ;cnt29-30
     cop2r63    | U20   | FLAG             | Returns any calculation errors   ;cnt31
 */
-
-// enum Registers {
-//     V0xy = 0, V0z = 1,
-//     V1xy = 2, V1z = 3,
-//     V2xy = 4, V2z = 5,
-//     RGBC = 6,
-//     OTZ = 7,
-//     IR0 = 8,
-//     IR1 = 9, IR2 = 10, IR3 = 11,
-//     SXY0 = 12, SXY1 = 13, SXY2 = 14, SXYP = 15,
-//     SZ0 = 16, SZ1 = 17, SZ2 = 18, SZ3 = 19,
-//     RGB0 = 20, RGB1 = 21, RGB2 = 22,
-//     RES1 = 23,
-//     MAC0 = 24,
-//     MAC1 = 25, MAC2 = 26, MAC3 = 27,
-//     IRGB = 28, ORGB = 29,
-//     LZCS = 30, LZCR = 31,
-//     RT11_12 = 32, RT13_21 = 33, RT22_23 = 34, RT31_32 = 35, RT33 = 36,
-//     TRX = 37, TRY = 38, TRZ = 39,
-//     L11_12 = 40, L13_21 = 41, L22_23 = 42, L31_32 = 43, L33 = 44,
-//     RBK = 45, GBK = 46, BBK = 47,
-//     LR11_12 = 48, LR13_21 = 49, LR22_23 = 50, LR31_32 = 51, LR33 = 52,
-//     RFC = 53, GFC = 54, BFC = 55,
-//     OFX = 56, OFY = 57,
-//     H = 58,
-//     DQA = 59, DQB = 60,
-//     ZSF3 = 61, ZSF4 = 62,
-//     FLAG = 63
-// }
-
-trait Clamp {
-    fn clamp(&self, min: Self, max: Self) -> Self;
-}
-
-impl Clamp for i32 {
-    fn clamp(&self, min: Self, max: Self) -> Self {
-        if *self < min {
-            min
-        } else if *self > max {
-            max
-        } else {
-            *self
-        }
-    }
-}
 
 bitfield! {
     pub struct Flags(u32);
@@ -118,67 +67,64 @@ bitfield! {
     error, set_error: 31;
 }
 
+#[derive(Copy, Clone, Debug)]
+struct Matrix {
+    mx: [[i16; 3]; 3],
+}
+
+#[derive(Copy, Clone, Debug)]
+struct RGB {
+    r: u8,
+    g: u8,
+    b: u8,
+    code: u8,
+}
+
+#[derive(Copy, Clone, Debug)]
+struct XY {
+    x: i16,
+    y: i16,
+}
+
 pub struct Gte {
     logger: Logger,
 
-    instruction: u32,
+    current_instruction: u32,
 
-    // r0-1
-    v0: Vector3,
-    // r2-3
-    v1: Vector3,
-    // r4-5
-    v2: Vector3,
-    // r6
-    color: Color,
-    // r7
-    otz: u16,
-    // r8
-    ir0: i16,
-    // r9-11
-    ir: Vector3,
-    // r12-15
-    xy_fifo: Vec<Vector3>,
-    // r16-19
-    z_fifo: Vec<u16>,
-    // r20-22
-    color_fifo: Vec<Color>,
-    // r23 unused?
-    r23: u32,
-    // r24,
-    mac0: i64,
-    // r25-27
-    mac: Vector3,
-    // r28-29 are on the fly
-    // r30
-    lzcs: u32,
-    // r31 is on the fly
-    // r32-36
-    rotation: Matrix3,
-    // r37-39
-    translation: Vector3,
-    // r40-44
-    light: Matrix3,
-    // r45-47
-    background_color: Vector3,
-    // r48-52
-    light_color: Matrix3,
-    // r53-55
-    far_color: Vector3,
-    // r56
-    ofx: u32,
-    // r57
-    ofy: u32,
-    // r58
+    cr: [u32; 32],
+
+    rotation: Matrix,
+    light: Matrix,
+    color: Matrix,
+
+    t: [i32; 4],
+    b: [i32; 4],
+    fc: [i32; 4],
+    null: [i32; 4],
+
+    ofx: i32,
+    ofy: i32,
     h: u16,
-    // r59
     dqa: i16,
-    // r60
-    dqb: u32,
-    // r61
+    dqb: i32,
+
     zsf3: i16,
-    // r62
     zsf4: i16,
+
+    vectors: [[i16; 4]; 3],
+    rgb: RGB,
+    otz: u16,
+
+    ir: [i16; 4],
+    xy_fifo: [XY; 4],
+    z_fifo: [u16; 4],
+    rgb_fifo: [RGB; 3],
+    mac: [i32; 4],
+    lzcs: u32,
+    lzcr: u32,
+
+    r23: u32,
+
     // r63
     flags: Flags,
 }
@@ -188,73 +134,119 @@ impl Gte {
         Gte {
             logger: Logger::new("GTE", Level::Debug),
 
-            instruction: 0,
+            current_instruction: 0,
 
-            v0: Vector3::new(),
-            v1: Vector3::new(),
-            v2: Vector3::new(),
-            color: Color::new(),
-            otz: 0,
-            ir0: 0,
-            ir: Vector3::new(),
-            xy_fifo: vec![Vector3::new(); 3],
-            z_fifo: vec![0; 4],
-            color_fifo: vec![Color::new(); 3],
-            r23: 0,
-            mac0: 0,
-            mac: Vector3::new(),
-            lzcs: 0,
-            rotation: Matrix3::new(),
-            translation: Vector3::new(),
-            light: Matrix3::new(),
-            background_color: Vector3::new(),
-            light_color: Matrix3::new(),
-            far_color: Vector3::new(),
+            cr: [0; 32],
+
+            rotation: Matrix { mx: [[0; 3]; 3] },
+            light: Matrix { mx: [[0; 3]; 3] },
+            color: Matrix { mx: [[0; 3]; 3] },
+
+            t: [0; 4],
+            b: [0; 4],
+            fc: [0; 4],
+            null: [0; 4],
+
             ofx: 0,
             ofy: 0,
             h: 0,
             dqa: 0,
             dqb: 0,
+
             zsf3: 0,
             zsf4: 0,
+
+            vectors: [[0; 4]; 3],
+            rgb: RGB {
+                r: 0,
+                g: 0,
+                b: 0,
+                code: 0,
+            },
+            otz: 0,
+
+            ir: [0; 4],
+
+            xy_fifo: [XY { x: 0, y: 0 }; 4],
+            z_fifo: [0; 4],
+            rgb_fifo: [RGB {
+                r: 0,
+                g: 0,
+                b: 0,
+                code: 0,
+            }; 3],
+            mac: [0; 4],
+            lzcs: 0,
+            lzcr: 0,
+            r23: 0,
             flags: Flags(0),
         }
     }
 
     pub fn read_reg(&mut self, index: u32) -> u32 {
-        let value = match index {
-            0 => self.v0.x_u32() | (self.v0.y_u32() << 16),
-            1 => self.v0.z_u32s(),
-            2 => self.v1.x_u32() | (self.v1.y_u32() << 16),
-            3 => self.v1.z_u32s(),
-            4 => self.v2.x_u32() | (self.v2.y_u32() << 16),
-            5 => self.v2.z_u32s(),
-            6 => self.color.into(),
+        let index = index as usize;
+        if index >= 32 {
+            self.read_cr(index - 32)
+        } else {
+            self.read_dr(index)
+        }
+    }
+
+    fn read_dr(&self, index: usize) -> u32 {
+        match index {
+            0 => (self.vectors[0][0] as u16 as u32) | ((self.vectors[0][1] as u16 as u32) << 16),
+            1 => self.vectors[0][2] as u32,
+            2 => (self.vectors[1][0] as u16 as u32) | ((self.vectors[1][1] as u16 as u32) << 16),
+            3 => self.vectors[1][2] as u32,
+            4 => (self.vectors[2][0] as u16 as u32) | ((self.vectors[2][1] as u16 as u32) << 16),
+            5 => self.vectors[2][2] as u32,
+            6 => {
+                self.rgb.r as u32
+                    | ((self.rgb.g as u32) << 8)
+                    | ((self.rgb.b as u32) << 16)
+                    | ((self.rgb.code as u32) << 24)
+            }
             7 => self.otz as u32,
-            8 => self.ir0 as u32,
-            9 => self.ir.x_u32s(),
-            10 => self.ir.y_u32s(),
-            11 => self.ir.z_u32s(),
-            12 => self.xy_fifo[0].x_u32() | (self.xy_fifo[0].y_u32() << 16),
-            13 => self.xy_fifo[1].x_u32() | (self.xy_fifo[1].y_u32() << 16),
-            14 | 15 => self.xy_fifo[2].x_u32() | (self.xy_fifo[2].y_u32() << 16),
+            8 => self.ir[0] as u32,
+            9 => self.ir[1] as u32,
+            10 => self.ir[2] as u32,
+            11 => self.ir[3] as u32,
+            12 => (self.xy_fifo[0].x as u16 as u32) | ((self.xy_fifo[0].y as u16 as u32) << 16),
+            13 => (self.xy_fifo[1].x as u16 as u32) | ((self.xy_fifo[1].y as u16 as u32) << 16),
+            14 | 15 => {
+                (self.xy_fifo[2].x as u16 as u32) | ((self.xy_fifo[2].y as u16 as u32) << 16)
+            }
             16 => self.z_fifo[0] as u32,
             17 => self.z_fifo[1] as u32,
             18 => self.z_fifo[2] as u32,
             19 => self.z_fifo[3] as u32,
-            20 => self.color_fifo[0].into(),
-            21 => self.color_fifo[1].into(),
-            22 => self.color_fifo[2].into(),
+            20 => {
+                (self.rgb_fifo[0].r as u32)
+                    | ((self.rgb_fifo[0].g as u32) << 8)
+                    | ((self.rgb_fifo[0].b as u32) << 16)
+                    | ((self.rgb_fifo[0].code as u32) << 24)
+            }
+            21 => {
+                (self.rgb_fifo[1].r as u32)
+                    | ((self.rgb_fifo[1].g as u32) << 8)
+                    | ((self.rgb_fifo[1].b as u32) << 16)
+                    | ((self.rgb_fifo[1].code as u32) << 24)
+            }
+            22 => {
+                (self.rgb_fifo[2].r as u32)
+                    | ((self.rgb_fifo[2].g as u32) << 8)
+                    | ((self.rgb_fifo[2].b as u32) << 16)
+                    | ((self.rgb_fifo[2].code as u32) << 24)
+            }
             23 => self.r23,
-            24 => self.mac0 as u32,
-            25 => self.mac.0 as u32,
-            26 => self.mac.1 as u32,
-            27 => self.mac.2 as u32,
+            24 => self.mac[0] as u32,
+            25 => self.mac[1] as u32,
+            26 => self.mac[2] as u32,
+            27 => self.mac[3] as u32,
             28 | 29 => {
-                let r = (self.ir[X] / 0x80).clamp(0, 0x1f);
-                let g = (self.ir[Y] / 0x80).clamp(0, 0x1f);
-                let b = (self.ir[Z] / 0x80).clamp(0, 0x1f);
-                (r | (g << 5) | (b << 10)) as u32
+                Gte::sat5(self.ir[1] >> 7) as u32
+                    | ((Gte::sat5(self.ir[2] >> 7) as u32) << 5)
+                    | ((Gte::sat5(self.ir[3] >> 7) as u32) << 10)
             }
             30 => self.lzcs,
             31 => {
@@ -264,157 +256,224 @@ impl Gte {
                     self.lzcs.leading_ones()
                 }
             }
-            32 => {
-                let rt11 = self.rotation[0].x_u32();
-                let rt12 = self.rotation[0].y_u32();
-                rt11 | (rt12 << 16)
-            }
-            33 => {
-                let rt13 = self.rotation[0].z_u32();
-                let rt21 = self.rotation[1].x_u32();
-                rt13 | (rt21 << 16)
-            }
-            34 => {
-                let rt22 = self.rotation[1].y_u32();
-                let rt23 = self.rotation[1].z_u32();
-                rt22 | (rt23 << 16)
-            }
-            35 => {
-                let rt31 = self.rotation[2].x_u32();
-                let rt32 = self.rotation[2].y_u32();
-                rt31 | (rt32 << 16)
-            }
-            36 => self.rotation[2].z_u32s(),
-            37 => self.translation.x_u32s(),
-            38 => self.translation.y_u32s(),
-            39 => self.translation.z_u32s(),
-            40 => {
-                let lt11 = self.light[0].x_u32();
-                let lt12 = self.light[0].y_u32();
-                lt11 | (lt12 << 16)
-            }
-            41 => {
-                let lt13 = self.light[0].z_u32();
-                let lt21 = self.light[1].x_u32();
-                lt13 | (lt21 << 16)
-            }
-            42 => {
-                let lt22 = self.light[1].y_u32();
-                let lt23 = self.light[1].z_u32();
-                lt22 | (lt23 << 16)
-            }
-            43 => {
-                let lt31 = self.light[2].x_u32();
-                let lt32 = self.light[2].y_u32();
-                lt31 | (lt32 << 16)
-            }
-            44 => self.light[2].z_u32s(),
-            45 => self.background_color.0 as u32,
-            46 => self.background_color.1 as u32,
-            47 => self.background_color.2 as u32,
-            48 => {
-                let lc11 = self.light_color[0].x_u32();
-                let lc12 = self.light_color[0].y_u32();
-                lc11 | (lc12 << 16)
-            }
-            49 => {
-                let lc13 = self.light_color[0].z_u32();
-                let lc21 = self.light_color[1].x_u32();
-                lc13 | (lc21 << 16)
-            }
-            50 => {
-                let lc22 = self.light_color[1].y_u32();
-                let lc23 = self.light_color[1].z_u32();
-                lc22 | (lc23 << 16)
-            }
-            51 => {
-                let lc31 = self.light_color[2].x_u32();
-                let lc32 = self.light_color[2].y_u32();
-                lc31 | (lc32 << 16)
-            }
-            52 => self.light_color[2].z_u32s(),
-            53 => self.far_color.0 as u32,
-            54 => self.far_color.1 as u32,
-            55 => self.far_color.2 as u32,
-            56 => self.ofx as u32,
-            57 => self.ofy as u32,
-            58 => self.h as i16 as u32,
-            59 => self.dqa as u32,
-            60 => self.dqb as u32,
-            61 => self.zsf3 as u32,
-            62 => self.zsf4 as u32,
-            63 => {
-                self.flags.set_error(self.flags.0 & 0x7f87_e000 != 0);
-                self.flags.0
-            }
             _ => unreachable!("{}", index),
-        };
+        }
+    }
 
-        // println!("[GTE] Read {:08x} from r{}", value, index);
-        value
+    fn read_cr(&self, index: usize) -> u32 {
+        match index {
+            24 => self.ofx as u32,
+            25 => self.ofy as u32,
+            26 => self.h as i16 as u32,
+            27 => self.dqa as i16 as u32,
+            28 => self.dqb as u32,
+            29 => self.zsf3 as i16 as u32,
+            30 => self.zsf4 as i16 as u32,
+            31 => self.cr[31],
+            4 | 12 | 20 => self.cr[index] as i16 as u32,
+            _ => self.cr[index],
+        }
     }
 
     pub fn write_reg(&mut self, index: u32, value: u32) {
         let index = index as usize;
-
         // println!("[GTE] Writing {:08x} to r{}", value, index);
 
+        if index >= 32 {
+            self.write_cr(index - 32, value);
+        } else {
+            self.write_dr(index, value);
+        }
+    }
+
+    fn write_cr(&mut self, index: usize, value: u32) {
+        const MASK_TABLE: [u32; 32] = [
+            /* 0x00 */
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0x0000_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            /* 0x08 */
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0x0000_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            /* 0x10 */
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0x0000_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            0xffff_ffff,
+            /* 0x18 */
+            0xffff_ffff,
+            0xffff_ffff,
+            0x0000_ffff,
+            0x0000_ffff,
+            0xffff_ffff,
+            0x0000_ffff,
+            0x0000_ffff,
+            0xffff_ffff,
+        ];
+
+        let value = value & MASK_TABLE[index];
+        self.cr[index] = value | (self.cr[index] & !MASK_TABLE[index]);
+
+        if index < 24 {
+            let we = index >> 3;
+            let index = index & 7;
+
+            if index >= 5 {
+                let vector = match we {
+                    0 => &mut self.t,
+                    1 => &mut self.b,
+                    2 => &mut self.fc,
+                    _ => unreachable!(),
+                };
+
+                vector[index - 5] = value as i32;
+            } else {
+                let matrix = match we {
+                    0 => &mut self.rotation,
+                    1 => &mut self.light,
+                    2 => &mut self.color,
+                    _ => unreachable!(),
+                };
+
+                match index {
+                    0 => {
+                        matrix.mx[0][0] = value as i16;
+                        matrix.mx[0][1] = (value >> 16) as i16;
+                    }
+                    1 => {
+                        matrix.mx[0][2] = value as i16;
+                        matrix.mx[1][0] = (value >> 16) as i16;
+                    }
+                    2 => {
+                        matrix.mx[1][1] = value as i16;
+                        matrix.mx[1][2] = (value >> 16) as i16;
+                    }
+                    3 => {
+                        matrix.mx[2][0] = value as i16;
+                        matrix.mx[2][1] = (value >> 16) as i16;
+                    }
+                    4 => {
+                        matrix.mx[2][2] = value as i16;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            return;
+        }
+
+        match index {
+            24 => {
+                self.ofx = value as i32;
+            }
+            25 => {
+                self.ofy = value as i32;
+            }
+            26 => {
+                self.h = value as u16;
+            }
+            27 => {
+                self.dqa = value as i16;
+            }
+            28 => {
+                self.dqb = value as i32;
+            }
+            29 => {
+                self.zsf3 = value as i16;
+            }
+            30 => {
+                self.zsf4 = value as i16;
+            }
+            31 => {
+                self.cr[31] = value & 0x7fff_f000;
+                if value & 0x7f87e000 != 0 {
+                    self.cr[31] |= 1 << 31;
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn write_dr(&mut self, index: usize, value: u32) {
         match index {
             0 => {
-                self.v0[X] = value as i16 as i64;
-                self.v0[Y] = (value >> 16) as i16 as i64;
+                self.vectors[0][0] = value as i16;
+                self.vectors[0][1] = (value >> 16) as i16;
             }
             1 => {
-                self.v0[Z] = value as i16 as i64;
+                self.vectors[0][2] = value as i16;
             }
             2 => {
-                self.v1[X] = value as i16 as i64;
-                self.v1[Y] = (value >> 16) as i16 as i64;
+                self.vectors[1][0] = value as i16;
+                self.vectors[1][1] = (value >> 16) as i16;
             }
             3 => {
-                self.v1[Z] = value as i16 as i64;
+                self.vectors[1][2] = value as i16;
             }
             4 => {
-                self.v2[X] = value as i16 as i64;
-                self.v2[Y] = (value >> 16) as i16 as i64;
+                self.vectors[2][0] = value as i16;
+                self.vectors[2][1] = (value >> 16) as i16;
             }
             5 => {
-                self.v2[Z] = value as i16 as i64;
+                self.vectors[2][2] = value as i16;
             }
             6 => {
-                self.color = Color::from(value);
+                self.rgb.r = value as u8;
+                self.rgb.g = (value >> 8) as u8;
+                self.rgb.b = (value >> 16) as u8;
+                self.rgb.code = (value >> 24) as u8;
             }
             7 => {
                 self.otz = value as u16;
             }
             8 => {
-                self.ir0 = value as i16;
+                self.ir[0] = value as i16;
             }
             9 => {
-                self.ir[X] = value as i16 as i64;
+                self.ir[1] = value as i16;
             }
             10 => {
-                self.ir[Y] = value as i16 as i64;
+                self.ir[2] = value as i16;
             }
             11 => {
-                self.ir[Z] = value as i16 as i64;
+                self.ir[3] = value as i16;
             }
             12 => {
-                self.xy_fifo[0][X] = value as i16 as i64;
-                self.xy_fifo[0][Y] = (value >> 16) as i16 as i64;
+                self.xy_fifo[0].x = value as i16;
+                self.xy_fifo[0].y = (value >> 16) as i16;
             }
             13 => {
-                self.xy_fifo[1][X] = value as i16 as i64;
-                self.xy_fifo[1][Y] = (value >> 16) as i16 as i64;
+                self.xy_fifo[1].x = value as i16;
+                self.xy_fifo[1].y = (value >> 16) as i16;
             }
             14 => {
-                self.xy_fifo[2][X] = value as i16 as i64;
-                self.xy_fifo[2][Y] = (value >> 16) as i16 as i64;
+                self.xy_fifo[2].x = value as i16;
+                self.xy_fifo[2].y = (value >> 16) as i16;
+                self.xy_fifo[3].x = value as i16;
+                self.xy_fifo[3].y = (value >> 16) as i16;
             }
             15 => {
-                self.xy_fifo.remove(0);
-                self.xy_fifo
-                    .push(Vector3(value as i16 as i64, (value >> 16) as i16 as i64, 0));
+                self.xy_fifo[3].x = value as i16;
+                self.xy_fifo[3].y = (value >> 16) as i16;
+
+                self.xy_fifo[0] = self.xy_fifo[1];
+                self.xy_fifo[1] = self.xy_fifo[2];
+                self.xy_fifo[2] = self.xy_fifo[3];
             }
             16 => {
                 self.z_fifo[0] = value as u16;
@@ -429,202 +488,109 @@ impl Gte {
                 self.z_fifo[3] = value as u16;
             }
             20 => {
-                self.color_fifo[0] = Color::from(value);
+                self.rgb_fifo[0].r = value as u8;
+                self.rgb_fifo[0].g = (value >> 8) as u8;
+                self.rgb_fifo[0].b = (value >> 16) as u8;
+                self.rgb_fifo[0].code = (value >> 24) as u8;
             }
             21 => {
-                self.color_fifo[1] = Color::from(value);
+                self.rgb_fifo[1].r = value as u8;
+                self.rgb_fifo[1].g = (value >> 8) as u8;
+                self.rgb_fifo[1].b = (value >> 16) as u8;
+                self.rgb_fifo[1].code = (value >> 24) as u8;
             }
             22 => {
-                self.color_fifo[2] = Color::from(value);
+                self.rgb_fifo[2].r = value as u8;
+                self.rgb_fifo[2].g = (value >> 8) as u8;
+                self.rgb_fifo[2].b = (value >> 16) as u8;
+                self.rgb_fifo[2].code = (value >> 24) as u8;
             }
             23 => {
                 self.r23 = value;
             }
             24 => {
-                self.mac0 = value as i32 as i64;
+                self.mac[0] = value as i32;
             }
             25 => {
-                self.mac.0 = value as i32 as i64;
+                self.mac[1] = value as i32;
             }
             26 => {
-                self.mac.1 = value as i32 as i64;
+                self.mac[2] = value as i32;
             }
             27 => {
-                self.mac.2 = value as i32 as i64;
+                self.mac[3] = value as i32;
             }
             28 => {
-                let red = value & 0x1f;
-                let green = (value >> 5) & 0x1f;
-                let blue = (value >> 10) & 0x1f;
-
-                self.ir[X] = (red * 0x80) as i16 as i64;
-                self.ir[Y] = (green * 0x80) as i16 as i64;
-                self.ir[Z] = (blue * 0x80) as i16 as i64;
+                self.ir[1] = ((value & 0x1f) << 7) as i16;
+                self.ir[2] = (((value >> 5) & 0x1f) << 7) as i16;
+                self.ir[3] = (((value >> 10) & 0x1f) << 7) as i16;
             }
+            29 => {}
             30 => {
                 self.lzcs = value;
+                self.lzcr = if self.lzcs as i32 >= 0 {
+                    self.lzcs.leading_zeros()
+                } else {
+                    self.lzcs.leading_ones()
+                }
             }
-            29 | 31 => { /* read only */ }
-            /* Rotation matrix */
-            32 => {
-                let rt11 = value & 0xffff;
-                let rt12 = value >> 16;
-                self.rotation[0][X] = rt11 as i16 as i64;
-                self.rotation[0][Y] = rt12 as i16 as i64;
-            }
-            33 => {
-                let rt13 = value & 0xffff;
-                let rt21 = value >> 16;
-                self.rotation[0][Z] = rt13 as i16 as i64;
-                self.rotation[1][X] = rt21 as i16 as i64;
-            }
-            34 => {
-                let rt22 = value & 0xffff;
-                let rt23 = value >> 16;
-                self.rotation[1][Y] = rt22 as i16 as i64;
-                self.rotation[1][Z] = rt23 as i16 as i64;
-            }
-            35 => {
-                let rt31 = value & 0xffff;
-                let rt32 = value >> 16;
-                self.rotation[2][X] = rt31 as i16 as i64;
-                self.rotation[2][Y] = rt32 as i16 as i64;
-            }
-            36 => {
-                let rt33 = value & 0xffff;
-                self.rotation[2][Z] = rt33 as i16 as i64;
-            }
-            37 => {
-                self.translation[X] = value as i32 as i64;
-            }
-            38 => {
-                self.translation[Y] = value as i32 as i64;
-            }
-            39 => {
-                self.translation[Z] = value as i32 as i64;
-            }
-            /* Light matrix */
-            40 => {
-                let lt11 = value & 0xffff;
-                let lt12 = value >> 16;
-                self.light[0][X] = lt11 as i16 as i64;
-                self.light[0][Y] = lt12 as i16 as i64;
-            }
-            41 => {
-                let lt13 = value & 0xffff;
-                let lt21 = value >> 16;
-                self.light[0][Z] = lt13 as i16 as i64;
-                self.light[1][X] = lt21 as i16 as i64;
-            }
-            42 => {
-                let lt22 = value & 0xffff;
-                let lt23 = value >> 16;
-                self.light[1][Y] = lt22 as i16 as i64;
-                self.light[1][Z] = lt23 as i16 as i64;
-            }
-            43 => {
-                let lt31 = value & 0xffff;
-                let lt32 = value >> 16;
-                self.light[2][X] = lt31 as i16 as i64;
-                self.light[2][Y] = lt32 as i16 as i64;
-            }
-            44 => {
-                let lt33 = value & 0xffff;
-                self.light[2][Z] = lt33 as i16 as i64;
-            }
-            45 => {
-                self.background_color.0 = value as i32 as i64;
-            }
-            46 => {
-                self.background_color.1 = value as i32 as i64;
-            }
-            47 => {
-                self.background_color.2 = value as i32 as i64;
-            }
-            /* Light color matrix */
-            48 => {
-                let lc11 = value & 0xffff;
-                let lc12 = value >> 16;
-                self.light_color[0][X] = lc11 as i16 as i64;
-                self.light_color[0][Y] = lc12 as i16 as i64;
-            }
-            49 => {
-                let lc13 = value & 0xffff;
-                let lc21 = value >> 16;
-                self.light_color[0][Z] = lc13 as i16 as i64;
-                self.light_color[1][X] = lc21 as i16 as i64;
-            }
-            50 => {
-                let lc22 = value & 0xffff;
-                let lc23 = value >> 16;
-                self.light_color[1][Y] = lc22 as i16 as i64;
-                self.light_color[1][Z] = lc23 as i16 as i64;
-            }
-            51 => {
-                let lc31 = value & 0xffff;
-                let lc32 = value >> 16;
-                self.light_color[2][X] = lc31 as i16 as i64;
-                self.light_color[2][Y] = lc32 as i16 as i64;
-            }
-            52 => {
-                let lc33 = value & 0xffff;
-                self.light_color[2][Z] = lc33 as i16 as i64;
-            }
-            53 => {
-                self.far_color.0 = value as i32 as i64;
-            }
-            54 => {
-                self.far_color.1 = value as i32 as i64;
-            }
-            55 => {
-                self.far_color.2 = value as i32 as i64;
-            }
-            56 => {
-                self.ofx = value;
-            }
-            57 => {
-                self.ofy = value;
-            }
-            58 => {
-                self.h = value as u16;
-            }
-            59 => {
-                self.dqa = value as i16;
-            }
-            60 => {
-                self.dqb = value;
-            }
-            61 => {
-                self.zsf3 = value as i16;
-            }
-            62 => {
-                self.zsf4 = value as i16;
-            }
-            63 => {
-                self.flags.0 = value & !0x8000_0fff;
-            }
+            31 => {}
             _ => unreachable!(),
         }
     }
 
+    pub fn execute(&mut self, instruction: u32) {
+        self.flags.0 = 0;
+        self.current_instruction = instruction;
+
+        match instruction & 0x3f {
+            0x01 => self.rtps(),
+            0x06 => self.nclip(),
+            0x0c => self.op(),
+            0x10 => self.dpcs(),
+            0x11 => self.intpl(),
+            0x12 => self.mvmva(),
+            0x13 => self.ncds(),
+            0x14 => self.cdp(),
+            0x16 => self.ncdt(),
+            0x1b => self.nccs(),
+            0x1c => self.cc(),
+            0x1e => self.ncs(),
+            0x20 => self.nct(),
+            0x28 => self.sqr(),
+            0x29 => self.dcpl(),
+            0x2a => self.dpct(),
+            0x2d => self.avsz3(),
+            0x2e => self.avsz4(),
+            0x30 => self.rtpt(),
+            0x3d => self.gpf(),
+            0x3e => self.gpl(),
+            0x3f => self.ncct(),
+            _ => err!(self.logger, "Unknown function {}", instruction & 0x3f),
+        }
+
+        if self.flags.0 & 0x7f87_e000 != 0 {
+            self.flags.0 |= 1 << 31;
+        }
+
+        self.cr[31] = self.flags.0;
+    }
+
+    fn sat5(cc: i16) -> u8 {
+        if cc < 0 {
+            0
+        } else if cc > 0x1f {
+            0x1f
+        } else {
+            cc as u8
+        }
+    }
+
     pub fn op_lm(&self) -> bool {
-        self.instruction & (1 << 10) != 0
+        self.current_instruction & (1 << 10) != 0
     }
 
     pub fn op_shift(&self) -> bool {
-        self.instruction & (1 << 19) != 0
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn background_color_is_signed() {
-        let mut gte = Gte::new();
-
-        gte.write_reg(45, 0xffff_ffff);
-        assert_eq!(gte.background_color.0, -1);
+        self.current_instruction & (1 << 19) != 0
     }
 }

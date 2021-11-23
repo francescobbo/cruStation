@@ -89,7 +89,7 @@ impl Gpu {
     }
 
     pub fn load_renderer(&mut self) {
-        // self.renderer = Some(Renderer::new());
+        self.renderer = Some(Renderer::new());
     }
 }
 

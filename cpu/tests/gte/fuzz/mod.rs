@@ -30,6 +30,8 @@ fn registers() {
     let tests = load_fuzz_tests("registers");
 
     for test in tests {
+        println!("Running test: {}", test.name);
+
         let mut gte = Gte::new();
 
         for (r, val) in test.input.iter().enumerate() {
@@ -40,6 +42,8 @@ fn registers() {
         for (r, val) in test.output.iter().enumerate() {
             let expected = u32::from_str_radix(&val[2..], 16).unwrap();
             let actual = gte.read_reg(r as u32);
+
+            println!("r{}, act {:08x} = exp {:08x}", r, actual, expected);
 
             assert_eq!(expected, actual);
         }
@@ -57,6 +61,7 @@ fn run_gte_fuzz_test(test: &GteFuzzTest) -> bool {
     let opcode = u32::from_str_radix(&test.opcode[2..], 16).unwrap();
     gte.execute(opcode);
 
+    let mut pass = true;
     for (r, val) in test.output.iter().enumerate() {
         let expected = u32::from_str_radix(&val[2..], 16).unwrap();
         let actual = gte.read_reg(r as u32);
@@ -66,19 +71,22 @@ fn run_gte_fuzz_test(test: &GteFuzzTest) -> bool {
                 let expected = Flags(expected);
                 let actual = Flags(actual);
 
-                println!("Error flags contains {:#?} but {:#?} was expected", actual, expected);
+                println!(
+                    "Error flags contains {:#?} but {:#?} was expected",
+                    actual, expected
+                );
             } else {
                 println!(
                     "r{} contains {:08x}, but was expecting {:08x}",
                     r, actual, expected
-                );    
+                );
             }
 
-            return false;
+            pass = false;
         }
     }
 
-    true
+    pass
 }
 
 fn run_gte_fuzz_suite(tests: Vec<GteFuzzTest>) {
@@ -115,21 +123,18 @@ fn avsz4() {
 }
 
 #[test]
-#[ignore]
 fn cc() {
     let tests = load_fuzz_tests("cc");
     run_gte_fuzz_suite(tests);
 }
 
 #[test]
-#[ignore]
 fn cdp() {
     let tests = load_fuzz_tests("cdp");
     run_gte_fuzz_suite(tests);
 }
 
 #[test]
-#[ignore]
 fn dcpl() {
     let tests = load_fuzz_tests("dcpl");
     run_gte_fuzz_suite(tests);
@@ -142,35 +147,30 @@ fn dpcs() {
 }
 
 #[test]
-#[ignore]
 fn dpct() {
     let tests = load_fuzz_tests("dpct");
     run_gte_fuzz_suite(tests);
 }
 
 #[test]
-#[ignore]
 fn gpf() {
     let tests = load_fuzz_tests("gpf");
     run_gte_fuzz_suite(tests);
 }
 
 #[test]
-#[ignore]
 fn gpl() {
     let tests = load_fuzz_tests("gpl");
     run_gte_fuzz_suite(tests);
 }
 
 #[test]
-#[ignore]
 fn intpl() {
     let tests = load_fuzz_tests("intpl");
     run_gte_fuzz_suite(tests);
 }
 
 #[test]
-#[ignore]
 fn mvmva() {
     let tests = load_fuzz_tests("mvmva");
     run_gte_fuzz_suite(tests);
@@ -183,7 +183,6 @@ fn nccs() {
 }
 
 #[test]
-#[ignore]
 fn ncct() {
     let tests = load_fuzz_tests("ncct");
     run_gte_fuzz_suite(tests);
@@ -196,7 +195,6 @@ fn ncds() {
 }
 
 #[test]
-#[ignore]
 fn ncdt() {
     let tests = load_fuzz_tests("ncdt");
     run_gte_fuzz_suite(tests);
@@ -215,7 +213,6 @@ fn ncs() {
 }
 
 #[test]
-#[ignore]
 fn nct() {
     let tests = load_fuzz_tests("nct");
     run_gte_fuzz_suite(tests);
@@ -228,19 +225,18 @@ fn op() {
 }
 
 #[test]
-fn rptp() {
-    let tests = load_fuzz_tests("rptp");
-    run_gte_fuzz_suite(tests);
-}
-
-#[test]
 fn rtps() {
     let tests = load_fuzz_tests("rtps");
     run_gte_fuzz_suite(tests);
 }
 
 #[test]
-#[ignore]
+fn rtpt() {
+    let tests = load_fuzz_tests("rtpt");
+    run_gte_fuzz_suite(tests);
+}
+
+#[test]
 fn sqr() {
     let tests = load_fuzz_tests("sqr");
     run_gte_fuzz_suite(tests);

@@ -1,338 +1,634 @@
+use super::division;
+use super::{Gte, Matrix};
 use crustationlogger::*;
 
-use super::algebra::Axis::{X, Y};
-use super::algebra::*;
-use super::color::Color;
-use super::division;
-use super::Gte;
-
-trait Clamp {
-    fn clamp(&self, min: Self, max: Self) -> Self;
-}
-
-impl Clamp for i32 {
-    fn clamp(&self, min: Self, max: Self) -> Self {
-        if *self < min {
-            min
-        } else if *self > max {
-            max
-        } else {
-            *self
-        }
-    }
+macro_rules! sign_x_to_s64 {
+    ($n:expr, $val:expr) => {
+        ((($val) as u64 as i64) << (64 - ($n))) >> (64 - ($n))
+    };
 }
 
 impl Gte {
-    pub fn execute(&mut self, op: u32) {
-        self.instruction = op;
-
-        debug!(self.logger, "OP {:02x}", op & 0x3f);
-
-        self.flags.0 = 0;
-
-        match op & 0x3f {
-            0x01 => self.rtps(0, true),
-            0x06 => self.nclip(),
-            0x0c => self.op(),
-            0x10 => self.dpcs(),
-            0x13 => self.ncds(),
-            0x1b => self.nccs(),
-            0x1e => self.ncs(),
-            0x2d => self.avsz3(),
-            0x2e => self.avsz4(),
-            0x30 => self.rtpt(),
-            0x3f => {
-                err!(self.logger, "Unimplemented operation {:02x}", op & 0x3f);
-            }
-            _ => {
-                err!(self.logger, "Invalid opcode {:08x}", op);
-            }
+    fn sf(&self) -> u32 {
+        if self.current_instruction & (1 << 19) != 0 {
+            12
+        } else {
+            0
         }
     }
 
-    pub fn rtps(&mut self, v_idx: usize, finalize: bool) {
-        let vec = if v_idx == 0 {
-            &self.v0
-        } else if v_idx == 1 {
-            &self.v1
+    fn lm(&self) -> bool {
+        (self.current_instruction >> 10 & 1) != 0
+    }
+
+    fn mx(&self) -> u32 {
+        (self.current_instruction >> 17) & 0x3
+    }
+
+    fn v_i(&self) -> u32 {
+        (self.current_instruction >> 15) & 0x3
+    }
+
+    fn cv(&self) -> &[i32; 4] {
+        match (self.current_instruction >> 13) & 3 {
+            0 => &self.t,
+            1 => &self.b,
+            2 => &self.fc,
+            3 => &self.null,
+            _ => unreachable!(),
+        }
+    }
+
+    fn v(&self) -> [i16; 4] {
+        if self.v_i() == 3 {
+            [self.ir[1], self.ir[2], self.ir[3], 0]
         } else {
-            &self.v2
-        };
+            [
+                self.vectors[self.v_i() as usize][0],
+                self.vectors[self.v_i() as usize][1],
+                self.vectors[self.v_i() as usize][2],
+                0,
+            ]
+        }
+    }
 
-        let dots = Vector3(
-            self.rotation[0].dot(vec),
-            self.rotation[1].dot(vec),
-            self.rotation[2].dot(vec),
-        );
+    fn a_mv(&mut self, which: usize, value: i64) -> i64 {
+        if value >= (1_i64 << 43) {
+            self.flags.0 |= 1 << (30 - which);
+        }
 
-        let first = (self.translation << 12) + dots;
-        self.set_mac_ir(first, self.op_lm());
+        if value < -(1_i64 << 43) {
+            self.flags.0 |= 1 << (27 - which);
+        }
 
-        let new_z = ((first.2 >> 12) as i32).clamp(0, 0xffff) as u16;
-        self.z_fifo.remove(0);
-        self.z_fifo.push(new_z);
+        sign_x_to_s64!(44, value)
+    }
 
-        let (h_over_s3z, _) = division::division(self.h, new_z as u16);
-        let h_over_s3z = h_over_s3z as i32 as i64;
-        let mut x = h_over_s3z * self.ir.0 + (self.ofx as i32 as i64);
-        let mut y = h_over_s3z * self.ir.1 + (self.ofy as i32 as i64);
+    fn lm_b(&mut self, which: usize, mut value: i32, lm: bool) -> i16 {
+        let min: i32 = if lm { 0 } else { -0x8000 };
+        if value < min {
+            // set flag here
+            self.flags.0 |= 1 << (24 - which);
+            value = min;
+        }
 
-        self.mac0 = y;
-        x >>= 16;
-        y >>= 16;
+        if value > 0x7fff {
+            // Set flag here
+            self.flags.0 |= 1 << (24 - which);
+            value = 0x7fff;
+        }
+
+        value as i16
+    }
+
+    fn lm_b_ptz(&mut self, which: usize, mut value: i32, ftv_value: i32, lm: bool) -> i16 {
+        let tmp: i32 = if lm { 1 << 15 } else { 0 };
+
+        if ftv_value < -0x8000 {
+            self.flags.0 |= 1 << (24 - which);
+        }
+
+        if ftv_value > 0x7fff {
+            self.flags.0 |= 1 << (24 - which);
+        }
+
+        if value < (-0x8000 + tmp) {
+            value = -0x8000 + tmp;
+        }
+
+        if value > 0x7fff {
+            value = 0x7fff;
+        }
+
+        value as i16
+    }
+
+    fn lm_c(&mut self, which: usize, mut value: i32) -> u8 {
+        if value & !0xff != 0 {
+            // Set flag here
+            self.flags.0 |= 1 << (21 - which); // Tested with GPF
+
+            if value < 0 {
+                value = 0;
+            }
+
+            if value > 255 {
+                value = 255;
+            }
+        }
+
+        value as u8
+    }
+
+    fn lm_d(&mut self, mut value: i32, unchained: bool) -> i32 {
+        // Not sure if we should have it as int64, or just chain on to and special case when the F flags are set.
+        if !unchained {
+            if self.flags.0 & (1 << 15) != 0 {
+                self.flags.0 |= 1 << 18;
+                return 0;
+            }
+
+            if self.flags.0 & (1 << 16) != 0 {
+                self.flags.0 |= 1 << 18;
+                return 0xffff;
+            }
+        }
+
+        if value < 0 {
+            // Set flag here
+            value = 0;
+            self.flags.0 |= 1 << 18; // Tested with AVSZ3
+        } else if value > 0xffff {
+            // Set flag here.
+            value = 0xffff;
+            self.flags.0 |= 1 << 18; // Tested with AVSZ3
+        }
+
+        value
+    }
+
+    fn lm_g(&mut self, which: usize, mut value: i32) -> i16 {
+        if value < -0x400 {
+            // Set flag here
+            value = -0x400;
+            self.flags.0 |= 1 << (14 - which);
+        }
+
+        if value > 0x3ff {
+            // Set flag here.
+            value = 0x3ff;
+            self.flags.0 |= 1 << (14 - which);
+        }
+
+        value as i16
+    }
+
+    fn lm_h(&mut self, mut value: i32) -> i16 {
+        if value < 0 {
+            value = 0;
+            self.flags.0 |= 1 << 12;
+        }
+
+        if value > 0x1000 {
+            value = 0x1000;
+            self.flags.0 |= 1 << 12;
+        }
+
+        value as i16
+    }
+
+    fn multiply_matrix_by_vector(
+        &mut self,
+        matrix: Matrix,
+        v: [i16; 4],
+        crv: [i32; 4],
+        sf: u32,
+        lm: bool,
+    ) {
+        for i in 0..3 {
+            let mut mulr: [i32; 3] = [0; 3];
+
+            let mut tmp = (crv[i] as i64) << 12;
+
+            mulr[0] = matrix.mx[i][0] as i32 * v[0] as i32;
+            mulr[1] = matrix.mx[i][1] as i32 * v[1] as i32;
+            mulr[2] = matrix.mx[i][2] as i32 * v[2] as i32;
+
+            tmp = self.a_mv(i, tmp + mulr[0] as i64);
+            // TODO: this should be a ref
+            if crv == self.fc {
+                self.lm_b(i, (tmp >> sf) as i32, false);
+                tmp = 0;
+            }
+            tmp = self.a_mv(i, tmp + mulr[1] as i64);
+            tmp = self.a_mv(i, tmp + mulr[2] as i64);
+
+            self.mac[1 + i] = (tmp >> sf) as i32;
+        }
+
+        self.mac_to_ir(lm);
+    }
+
+    fn multiply_matrix_by_vector_pt(
+        &mut self,
+        matrix: Matrix,
+        v: [i16; 4],
+        crv: [i32; 4],
+        sf: u32,
+        lm: bool,
+    ) {
+        let mut tmp: [i64; 3] = [0; 3];
+
+        for i in 0..3 {
+            let mut mulr: [i32; 3] = [0; 3];
+
+            tmp[i] = (crv[i] as i64) << 12;
+
+            mulr[0] = matrix.mx[i][0] as i32 * v[0] as i32;
+            mulr[1] = matrix.mx[i][1] as i32 * v[1] as i32;
+            mulr[2] = matrix.mx[i][2] as i32 * v[2] as i32;
+
+            tmp[i] = self.a_mv(i, tmp[i] + mulr[0] as i64);
+            tmp[i] = self.a_mv(i, tmp[i] + mulr[1] as i64);
+            tmp[i] = self.a_mv(i, tmp[i] + mulr[2] as i64);
+
+            self.mac[1 + i] = (tmp[i] >> sf) as i32;
+        }
+
+        self.ir[1] = self.lm_b(0, self.mac[1], lm);
+        self.ir[2] = self.lm_b(1, self.mac[2], lm);
+        self.ir[3] = self.lm_b_ptz(2, self.mac[3], (tmp[2] >> 12) as i32, lm);
+
+        self.z_fifo[0] = self.z_fifo[1];
+        self.z_fifo[1] = self.z_fifo[2];
+        self.z_fifo[2] = self.z_fifo[3];
+        self.z_fifo[3] = self.lm_d((tmp[2] >> 12) as i32, true) as u16;
+    }
+
+    fn f(&mut self, value: i64) -> i64 {
+        if value < -0x8000_0000 {
+            // flag set here
+            self.flags.0 |= 1 << 15;
+        }
+
+        if value > 0x7fff_ffff {
+            // flag set here
+            self.flags.0 |= 1 << 16;
+        }
+
+        value
+    }
+
+    fn transform_xy(&mut self, h_div_sz: i64) {
+        self.mac[0] = (self.f(self.ofx as i64 + self.ir[1] as i64 * h_div_sz) >> 16) as i32;
+        self.xy_fifo[3].x = self.lm_g(0, self.mac[0]) as i16;
+
+        self.mac[0] = (self.f(self.ofy as i64 + self.ir[2] as i64 * h_div_sz) >> 16) as i32;
+        self.xy_fifo[3].y = self.lm_g(1, self.mac[0]) as i16;
 
         self.xy_fifo[0] = self.xy_fifo[1];
         self.xy_fifo[1] = self.xy_fifo[2];
-        self.xy_fifo[2] = Vector3(
-            x.clamp(-0x400, 0x3ff) as i32 as i64,
-            y.clamp(-0x400, 0x3ff) as i32 as i64,
+        self.xy_fifo[2] = self.xy_fifo[3];
+    }
+
+    fn transform_dq(&mut self, h_div_sz: i64) {
+        self.mac[0] = self.f(self.dqb as i64 + self.dqa as i64 * h_div_sz) as i32;
+        self.ir[0] =
+            self.lm_h(((self.dqb as i64 + self.dqa as i64 * h_div_sz) >> 12) as i32) as i16;
+    }
+
+    fn mac_to_ir(&mut self, lm: bool) {
+        self.ir[1] = self.lm_b(0, self.mac[1], lm);
+        self.ir[2] = self.lm_b(1, self.mac[2], lm);
+        self.ir[3] = self.lm_b(2, self.mac[3], lm);
+    }
+
+    pub(super) fn rtps(&mut self) {
+        self.multiply_matrix_by_vector_pt(
+            self.rotation,
+            self.vectors[0],
+            self.t,
+            self.sf(),
+            self.lm(),
+        );
+        let (h_div_sz, of) = division::division(self.h, self.z_fifo[3]);
+        let h_div_sz = h_div_sz as i64;
+
+        if of {
+            self.flags.0 |= 1 << 17;
+        }
+
+        self.transform_xy(h_div_sz);
+        self.transform_dq(h_div_sz);
+    }
+
+    pub(super) fn nclip(&mut self) {
+        self.mac[0] = self.f((self.xy_fifo[0].x as i64
+            * (self.xy_fifo[1].y as i64 - self.xy_fifo[2].y as i64))
+            + (self.xy_fifo[1].x as i64 * (self.xy_fifo[2].y as i64 - self.xy_fifo[0].y as i64))
+            + (self.xy_fifo[2].x as i64 * (self.xy_fifo[0].y as i64 - self.xy_fifo[1].y as i64)))
+            as i32;
+    }
+
+    pub(super) fn op(&mut self) {
+        self.mac[1] = ((self.rotation.mx[1][1] as i32 * self.ir[3] as i32)
+            - (self.rotation.mx[2][2] as i32 * self.ir[2] as i32))
+            >> self.sf();
+        self.mac[2] = ((self.rotation.mx[2][2] as i32 * self.ir[1] as i32)
+            - (self.rotation.mx[0][0] as i32 * self.ir[3] as i32))
+            >> self.sf();
+        self.mac[3] = ((self.rotation.mx[0][0] as i32 * self.ir[2] as i32)
+            - (self.rotation.mx[1][1] as i32 * self.ir[1] as i32))
+            >> self.sf();
+
+        self.mac_to_ir(self.lm());
+    }
+
+    pub(super) fn rtpt(&mut self) {
+        for i in 0..3 {
+            self.multiply_matrix_by_vector_pt(
+                self.rotation,
+                self.vectors[i],
+                self.t,
+                self.sf(),
+                self.lm(),
+            );
+            let (h_div_sz, of) = division::division(self.h, self.z_fifo[3]);
+            let h_div_sz = h_div_sz as i64;
+
+            if of {
+                self.flags.0 |= 1 << 17;
+            }
+
+            self.transform_xy(h_div_sz);
+
+            if i == 2 {
+                self.transform_dq(h_div_sz);
+            }
+        }
+    }
+
+    pub(super) fn avsz3(&mut self) {
+        self.mac[0] = self.f(self.zsf3 as i64
+            * (self.z_fifo[1] as i64 + self.z_fifo[2] as i64 + self.z_fifo[3] as i64))
+            as i32;
+        self.otz = self.lm_d(self.mac[0] >> 12, false) as u16;
+    }
+
+    pub(super) fn avsz4(&mut self) {
+        self.mac[0] = self.f(self.zsf4 as i64
+            * (self.z_fifo[0] as i64
+                + self.z_fifo[1] as i64
+                + self.z_fifo[2] as i64
+                + self.z_fifo[3] as i64)) as i32;
+        self.otz = self.lm_d(self.mac[0] >> 12, false) as u16;
+    }
+
+    fn mac_to_rgb_fifo(&mut self) {
+        self.rgb_fifo[0] = self.rgb_fifo[1];
+        self.rgb_fifo[1] = self.rgb_fifo[2];
+        self.rgb_fifo[2].r = self.lm_c(0, self.mac[1] >> 4);
+        self.rgb_fifo[2].g = self.lm_c(1, self.mac[2] >> 4);
+        self.rgb_fifo[2].b = self.lm_c(2, self.mac[3] >> 4);
+        self.rgb_fifo[2].code = self.rgb.code;
+    }
+
+    fn norm_color(&mut self, sf: u32, lm: bool, v: u32) {
+        let mut tmp_vector: [i16; 4] = [0; 4];
+
+        self.multiply_matrix_by_vector(self.light, self.vectors[v as usize], self.null, sf, lm);
+
+        tmp_vector[0] = self.ir[1];
+        tmp_vector[1] = self.ir[2];
+        tmp_vector[2] = self.ir[3];
+
+        self.multiply_matrix_by_vector(self.color, tmp_vector, self.b, sf, lm);
+
+        self.mac_to_rgb_fifo();
+    }
+
+    pub(crate) fn ncs(&mut self) {
+        self.norm_color(self.sf(), self.lm(), 0);
+    }
+
+    fn norm_color_color(&mut self, v: u32, sf: u32, lm: bool) {
+        let mut tmp_vector: [i16; 4] = [0; 4];
+
+        self.multiply_matrix_by_vector(self.light, self.vectors[v as usize], self.null, sf, lm);
+
+        tmp_vector[0] = self.ir[1];
+        tmp_vector[1] = self.ir[2];
+        tmp_vector[2] = self.ir[3];
+        self.multiply_matrix_by_vector(self.color, tmp_vector, self.b, sf, lm);
+
+        self.mac[1] = (((self.rgb.r as i32) << 4) * self.ir[1] as i32) >> sf;
+        self.mac[2] = (((self.rgb.g as i32) << 4) * self.ir[2] as i32) >> sf;
+        self.mac[3] = (((self.rgb.b as i32) << 4) * self.ir[3] as i32) >> sf;
+
+        self.mac_to_ir(lm);
+
+        self.mac_to_rgb_fifo();
+    }
+
+    pub(crate) fn nccs(&mut self) {
+        self.norm_color_color(0, self.sf(), self.lm());
+    }
+
+    fn norm_color_depth_cue(&mut self, v: u32, sf: u32, lm: bool) {
+        let mut tmp_vector: [i16; 4] = [0; 4];
+
+        self.multiply_matrix_by_vector(self.light, self.vectors[v as usize], self.null, sf, lm);
+
+        tmp_vector[0] = self.ir[1];
+        tmp_vector[1] = self.ir[2];
+        tmp_vector[2] = self.ir[3];
+        self.multiply_matrix_by_vector(self.color, tmp_vector, self.b, sf, lm);
+
+        self.depth_cue(true, false, sf, lm);
+    }
+
+    pub(crate) fn ncds(&mut self) {
+        self.norm_color_depth_cue(0, self.sf(), self.lm());
+    }
+
+    pub(crate) fn ncdt(&mut self) {
+        for i in 0..3 {
+            self.norm_color_depth_cue(i, self.sf(), self.lm());
+        }
+    }
+
+    fn depth_cue(&mut self, mult_ir123: bool, rgb_from_fifo: bool, sf: u32, lm: bool) {
+        let mut rgb_temp: [i32; 3] = [0; 3];
+        let ir_temp: [i32; 3] = [self.ir[1] as i32, self.ir[2] as i32, self.ir[3] as i32];
+
+        if rgb_from_fifo {
+            rgb_temp[0] = (self.rgb_fifo[0].r as i32) << 4;
+            rgb_temp[1] = (self.rgb_fifo[0].g as i32) << 4;
+            rgb_temp[2] = (self.rgb_fifo[0].b as i32) << 4;
+        } else {
+            rgb_temp[0] = (self.rgb.r as i32) << 4;
+            rgb_temp[1] = (self.rgb.g as i32) << 4;
+            rgb_temp[2] = (self.rgb.b as i32) << 4;
+        }
+
+        if mult_ir123 {
+            for i in 0..3 {
+                self.mac[1 + i] = (self.a_mv(
+                    i,
+                    ((self.fc[i] as i64) << 12) - rgb_temp[i] as i64 * ir_temp[i] as i64,
+                ) >> sf) as i32;
+                let lm_b = self.lm_b(i, self.mac[1 + i], false) as i64;
+                self.mac[1 + i] = (self.a_mv(
+                    i,
+                    rgb_temp[i] as i64 * ir_temp[i] as i64 + self.ir[0] as i64 * lm_b,
+                ) >> sf) as i32;
+            }
+        } else {
+            for i in 0..3 {
+                self.mac[1 + i] = (self.a_mv(
+                    i,
+                    ((self.fc[i] as i64) << 12) - ((rgb_temp[i] as u32) << 12) as i64,
+                ) >> sf) as i32;
+                let lm_b = self.lm_b(i, self.mac[1 + i], false) as i64;
+                self.mac[1 + i] = (self
+                    .a_mv(i, ((rgb_temp[i] as i64) << 12) + self.ir[0] as i64 * lm_b)
+                    >> sf) as i32;
+            }
+        }
+
+        self.mac_to_ir(lm);
+        self.mac_to_rgb_fifo();
+    }
+
+    pub(crate) fn dcpl(&mut self) {
+        self.depth_cue(true, false, self.sf(), self.lm());
+    }
+
+    pub(crate) fn dpcs(&mut self) {
+        self.depth_cue(false, false, self.sf(), self.lm());
+    }
+
+    pub(crate) fn dpct(&mut self) {
+        for _ in 0..3 {
+            self.depth_cue(false, true, self.sf(), self.lm());
+        }
+    }
+
+    pub(crate) fn ncct(&mut self) {
+        for i in 0..3 {
+            self.norm_color_color(i, self.sf(), self.lm());
+        }
+    }
+
+    pub(crate) fn nct(&mut self) {
+        for i in 0..3 {
+            self.norm_color(self.sf(), self.lm(), i);
+        }
+    }
+
+    pub(crate) fn cc(&mut self) {
+        let mut tmp_vector: [i16; 4] = [0; 4];
+
+        tmp_vector[0] = self.ir[1];
+        tmp_vector[1] = self.ir[2];
+        tmp_vector[2] = self.ir[3];
+        self.multiply_matrix_by_vector(self.color, tmp_vector, self.b, self.sf(), self.lm());
+
+        self.mac[1] = (((self.rgb.r as i32) << 4) * self.ir[1] as i32) >> self.sf();
+        self.mac[2] = (((self.rgb.g as i32) << 4) * self.ir[2] as i32) >> self.sf();
+        self.mac[3] = (((self.rgb.b as i32) << 4) * self.ir[3] as i32) >> self.sf();
+
+        self.mac_to_ir(self.lm());
+        self.mac_to_rgb_fifo();
+    }
+
+    pub(crate) fn cdp(&mut self) {
+        let mut tmp_vector: [i16; 4] = [0; 4];
+
+        tmp_vector[0] = self.ir[1];
+        tmp_vector[1] = self.ir[2];
+        tmp_vector[2] = self.ir[3];
+        self.multiply_matrix_by_vector(self.color, tmp_vector, self.b, self.sf(), self.lm());
+
+        self.depth_cue(true, false, self.sf(), self.lm());
+    }
+
+    pub(crate) fn sqr(&mut self) {
+        self.mac[1] = (self.ir[1] as i32 * self.ir[1] as i32) >> self.sf();
+        self.mac[2] = (self.ir[2] as i32 * self.ir[2] as i32) >> self.sf();
+        self.mac[3] = (self.ir[3] as i32 * self.ir[3] as i32) >> self.sf();
+
+        self.mac_to_ir(self.lm());
+    }
+
+    pub(crate) fn mvmva(&mut self) {
+        let matrix = match self.mx() {
+            0 => self.rotation,
+            1 => self.light,
+            2 => self.color,
+            3 => {
+                warn!(self.logger, "Use of bogus matrix in mvmva");
+
+                Matrix {
+                    mx: [
+                        [
+                            -(self.rgb.r as i16) << 4,
+                            (self.rgb.r as i16) << 4,
+                            self.ir[0],
+                        ],
+                        [self.cr[1] as i16, self.cr[1] as i16, self.cr[1] as i16],
+                        [self.cr[2] as i16, self.cr[2] as i16, self.cr[2] as i16],
+                    ],
+                }
+            }
+            _ => unreachable!(),
+        };
+        self.multiply_matrix_by_vector(matrix, self.v(), *self.cv(), self.sf(), self.lm());
+    }
+
+    pub(crate) fn intpl(&mut self) {
+        self.mac[1] = (self.a_mv(
             0,
-        );
+            ((self.fc[0] as i64) << 12) - (((self.ir[1]) as i32) << 12) as u32 as i64,
+        ) >> self.sf()) as i32;
+        self.mac[2] = (self.a_mv(
+            1,
+            ((self.fc[1] as i64) << 12) - (((self.ir[2]) as i32) << 12) as u32 as i64,
+        ) >> self.sf()) as i32;
+        self.mac[3] = (self.a_mv(
+            2,
+            ((self.fc[2] as i64) << 12) - (((self.ir[3]) as i32) << 12) as u32 as i64,
+        ) >> self.sf()) as i32;
 
-        if finalize {
-            self.mac0 = h_over_s3z * (self.dqa as i32 as i64) + (self.dqb as i32 as i64);
-            self.ir0 = (self.mac0 >> 12).clamp(0, 0x1000) as i16;
-        }
+        let lm_b = self.lm_b(0, self.mac[1], false) as i64;
+        self.mac[1] = self.a_mv(
+            0,
+            (((self.ir[1] as i64) << 12) + self.ir[0] as i64 * lm_b) >> self.sf(),
+        ) as i32;
+
+        let lm_b = self.lm_b(1, self.mac[2], false) as i64;
+        self.mac[2] = self.a_mv(
+            1,
+            (((self.ir[2] as i64) << 12) + self.ir[0] as i64 * lm_b) >> self.sf(),
+        ) as i32;
+
+        let lm_b = self.lm_b(2, self.mac[3], false) as i64;
+        self.mac[3] = self.a_mv(
+            2,
+            (((self.ir[3] as i64) << 12) + self.ir[0] as i64 * lm_b) >> self.sf(),
+        ) as i32;
+
+        self.mac_to_ir(self.lm());
+        self.mac_to_rgb_fifo();
     }
 
-    pub fn rtpt(&mut self) {
-        self.rtps(0, false);
-        self.rtps(1, false);
-        self.rtps(2, true);
+    pub(crate) fn gpf(&mut self) {
+        self.mac[1] = (self.ir[0] as i32 * self.ir[1] as i32) >> self.sf();
+        self.mac[2] = (self.ir[0] as i32 * self.ir[2] as i32) >> self.sf();
+        self.mac[3] = (self.ir[0] as i32 * self.ir[3] as i32) >> self.sf();
+
+        self.mac_to_ir(self.lm());
+        self.mac_to_rgb_fifo();
     }
 
-    pub fn nclip(&mut self) {
-        let sx0 = self.xy_fifo[0][X] as i64;
-        let sy0 = self.xy_fifo[0][Y] as i64;
+    pub(crate) fn gpl(&mut self) {
+        self.mac[1] = self.a_mv(
+            0,
+            (((self.mac[1] as i64) << self.sf()) + (self.ir[0] as i64 * self.ir[1] as i64))
+                >> self.sf(),
+        ) as i32;
+        self.mac[2] = self.a_mv(
+            1,
+            (((self.mac[2] as i64) << self.sf()) + (self.ir[0] as i64 * self.ir[2] as i64))
+                >> self.sf(),
+        ) as i32;
+        self.mac[3] = self.a_mv(
+            2,
+            (((self.mac[3] as i64) << self.sf()) + (self.ir[0] as i64 * self.ir[3] as i64))
+                >> self.sf(),
+        ) as i32;
 
-        let sx1 = self.xy_fifo[1][X] as i64;
-        let sy1 = self.xy_fifo[1][Y] as i64;
-
-        let sx2 = self.xy_fifo[2][X] as i64;
-        let sy2 = self.xy_fifo[2][Y] as i64;
-
-        let value = sx0 * sy1 + sx1 * sy2 + sx2 * sy0 - sx0 * sy2 - sx1 * sy0 - sx2 * sy1;
-        self.set_mac0(value);
-    }
-
-    pub fn op(&mut self) {
-        self.set_mac_ir(self.ir.cross(&self.rotation.diagonal()), self.op_lm());
-    }
-
-    /// Linearly interpolates the main color with the far color.
-    /// The result is pushed to the color FIFO.
-    ///
-    /// Inputs:
-    ///   - Color (8, 8, 8, )
-    ///   - Far color (1, 27, 4)
-    ///   - IR0
-    ///
-    /// Outputs:
-    ///   - Pushes to Color FIFO
-    ///
-    /// Uses:
-    ///   - MAC1/2/3
-    ///   - IR1/2/3
-    ///
-    /// `MainColor + (FarColor - MainColor) * IR0`
-    pub fn dpcs(&mut self) {
-        // Align bits to Far color (lower 4 bits are "fraction")
-        let rgb = self.color.as_vec() << 4;
-
-        // ir = far - rgb
-        self.set_mac_ir((self.far_color << 12) - (rgb << 12), false);
-
-        // mac = rgb + (far - rgb) * ir0
-        self.set_mac_ir((rgb << 12) + self.ir * self.ir0 as i64, self.op_lm());
-
-        self.push_color(self.mac);
-    }
-
-    pub fn ncs(&mut self) {
-        let (res, flags) = self.light.multiply_add(self.v0, Vector3::new());
-        self.flags.0 |= flags.0;
-
-        self.set_mac_ir(res, self.op_lm());
-
-        println!("BG: {:#?}", self.background_color);
-
-        let (res, flags) = self.light_color.multiply_add(self.ir, self.background_color << 12);
-        self.flags.0 |= flags.0;
-
-        self.set_mac_ir(res, self.op_lm());
-
-        self.push_color(self.mac);
-    }
-
-    pub fn nccs(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm());
-
-        self.set_mac_ir(
-            (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm(),
-        );
-
-        self.set_mac_ir((self.ir * self.color.as_vec()) << 4, self.op_lm());
-
-        self.push_color(self.mac);
-    }
-
-    pub fn ncds(&mut self) {
-        self.set_mac_ir(self.light * self.v0, self.op_lm());
-
-        self.set_mac_ir(
-            (self.background_color << 12) + (self.light_color * self.ir),
-            self.op_lm(),
-        );
-
-        let orig_ir = self.ir;
-
-        self.set_mac_ir(
-            (self.far_color << 12) - (self.color.as_vec() << 4) * self.ir,
-            false,
-        );
-
-        self.set_mac_ir(
-            (self.color.as_vec() << 4) * orig_ir + self.ir * (self.ir0 as i64),
-            self.op_lm(),
-        );
-
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r: (self.mac.0 >> 4).clamp(0, 0xff) as u8,
-            g: (self.mac.1 >> 4).clamp(0, 0xff) as u8,
-            b: (self.mac.2 >> 4).clamp(0, 0xff) as u8,
-            code: self.color.code,
-        });
-    }
-
-    /// Sums 3 Z values in the screen FIFO (1, 2 and 3) and multiplies them
-    /// by ZSF3. The result is >> 12 and put in OTZ.
-    /// 
-    /// Somehow "computes an average"
-    pub fn avsz3(&mut self) {
-        let value = self.zsf3 as i64;
-        let sum = (self.z_fifo[1] as i64) + (self.z_fifo[2] as i64) + (self.z_fifo[3] as i64);
-        self.set_mac0(value * sum);
-        self.set_otz((value * sum) >> 12);
-    }
-
-    /// Sums all the Z values in the screen FIFO (0, 1, 2 and 3) and multiplies
-    /// them by ZSF4. The result is >> 12 and put in OTZ.
-    /// 
-    /// Somehow "computes an average"
-    pub fn avsz4(&mut self) {
-        let value = self.zsf4 as i64;
-        let sum = (self.z_fifo[0] as i64)
-            + (self.z_fifo[1] as i64)
-            + (self.z_fifo[2] as i64)
-            + (self.z_fifo[3] as i64);
-        self.set_mac0(value * sum);
-        self.set_otz((value * sum) >> 12);
-    }
-
-    fn set_mac0(&mut self, value: i64) {
-        self.mac0 = value;
-
-        if self.mac0 >= 0x8000_0000 {
-            self.flags.set_mac0_of_pos(true);
-        } else if self.mac0 < -0x8000_0000 {
-            self.flags.set_mac0_of_neg(true);
-        }
-    }
-
-    fn set_otz(&mut self, value: i64) {
-        let saturated = value.clamp(0, 0xffff);
-        if saturated != value {
-            self.flags.set_sz3_otz_sat(true);
-        }
-
-        self.otz = saturated as u16;
-    }
-
-    fn set_mac_ir(&mut self, value: Vector3, lm_flag: bool) {
-        println!("Setting MAC TO {:#x?}", value);
-        self.mac = value;
-
-        let max = 1_i64 << 43;
-        let min = -(1_i64 << 43);
-
-        if self.mac.0 >= max {
-            self.flags.set_mac1_of_pos(true);
-        } else if self.mac.0 < min {
-            self.flags.set_mac1_of_neg(true);
-        }
-
-        if self.mac.1 >= max {
-            self.flags.set_mac2_of_pos(true);
-        } else if self.mac.1 < min {
-            self.flags.set_mac2_of_neg(true);
-        }
-
-        if self.mac.2 >= max {
-            self.flags.set_mac3_of_pos(true);
-        } else if self.mac.2 < min {
-            self.flags.set_mac3_of_neg(true);
-        }
-
-        if self.op_shift() {
-            self.mac = self.mac.shift_fraction()
-        }
-
-        self.mac = self.mac.truncate();
-        self.set_ir(self.mac, lm_flag);
-    }
-
-    fn push_color(&mut self, value: Vector3) {
-        println!("PUSHING COLOR {:#?}", value);
-
-        let value = value >> 4;
-
-        let r = value.0.clamp(0, 0xff) as u8;
-        let g = value.1.clamp(0, 0xff) as u8;
-        let b = value.2.clamp(0, 0xff) as u8;
-
-        if r as u64 as i64 != value.0 {
-            self.flags.set_color_r_sat(true);
-        }
-        
-        if g as u64 as i64 != value.1 {
-            self.flags.set_color_g_sat(true);
-        }
-
-        if b as u64 as i64 != value.2 {
-            self.flags.set_color_b_sat(true);
-        }
-
-        self.color_fifo.remove(0);
-        self.color_fifo.push(Color {
-            r, g, b, 
-            code: self.color.code,
-        });
-    }
-
-    fn set_ir(&mut self, value: Vector3, lm_flag: bool) {
-        self.ir = value;
-        self.saturate_ir(lm_flag);
-    }
-
-    fn saturate_ir(&mut self, lm: bool) {
-        let min = if lm { 0 } else { -0x8000 };
-
-        let f0 = self.ir.0.clamp(min, 0x7fff);
-        let f1 = self.ir.1.clamp(min, 0x7fff);
-        let f2 = self.ir.2.clamp(min, 0x7fff);
-
-        if f0 != self.ir.0 {
-            self.flags.set_ir1_sat(true);
-        }
-        if f1 != self.ir.1 {
-            self.flags.set_ir2_sat(true);
-        }
-        if f2 != self.ir.2 {
-            self.flags.set_ir3_sat(true);
-        }
-
-        self.ir = Vector3(f0, f1, f2);
+        self.mac_to_ir(self.lm());
+        self.mac_to_rgb_fifo();
     }
 }
