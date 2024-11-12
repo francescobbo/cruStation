@@ -1,4 +1,4 @@
-use crate::hw::bus::{BusDevice};
+use crate::hw::bus::BusDevice;
 
 #[derive(Copy, Clone, Debug)]
 enum ControllerState {

@@ -3,9 +3,9 @@ use crate::hw::vec::ByteSerialized;
 use std::fs::File;
 use std::sync::mpsc;
 
-use crustationcpu::{Cpu, CpuCommand, PsxBus};
 use crate::hw::dma::{ChannelLink, Direction, SyncMode};
 use crate::hw::{Bios, Cdrom, Dma, Gpu, JoypadMemorycard, Ram, Spu, Timers};
+use crustationcpu::{Cpu, CpuCommand, PsxBus};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -200,7 +200,6 @@ impl Bus {
         let mut events = self.events.borrow_mut();
 
         // If an event of the same type exists, remove it
-        // TODO: retain is unstable API. Alternatives?
         events.retain(|ev| ev.kind != kind);
 
         if first_target == 0 && repeat_after != 0 {
@@ -221,7 +220,6 @@ impl Bus {
     //     let mut events = self.events.borrow_mut();
 
     //     // If an event of the same type exists, remove it
-    //     // TODO: retain is unstable API. Alternatives?
     //     events.retain(|ev| ev.kind != kind);
     // }
 
@@ -436,7 +434,10 @@ impl Bus {
                         while remaining_words > 0 {
                             match active_channel.direction() {
                                 Direction::ToRam => {
-                                    let value = cdrom.read::<1>(2) | cdrom.read::<1>(2) << 8 | cdrom.read::<1>(2) << 16 | cdrom.read::<1>(2) << 24;
+                                    let value = cdrom.read::<1>(2)
+                                        | cdrom.read::<1>(2) << 8
+                                        | cdrom.read::<1>(2) << 16
+                                        | cdrom.read::<1>(2) << 24;
                                     self.ram.borrow_mut().write::<4>(addr, value);
                                     addr = addr.wrapping_add(4);
                                     remaining_words -= 1;
@@ -460,12 +461,12 @@ impl Bus {
                                     Direction::FromRam => {
                                         let header = self.ram.borrow_mut().read::<4>(addr);
                                         let word_count = header >> 24;
-                 
+
                                         // if word_count > 0 {
                                         //     println!("[DMA2] GPU <- RAM @ 0x{:08x}, count: {}, nextAddr: 0x{:08x}",
                                         //     addr, word_count, header);
                                         // }
-                 
+
                                         for _ in 0..word_count {
                                             addr = addr.wrapping_add(step as u32);
                                             let cmd = self.ram.borrow_mut().read::<4>(addr);

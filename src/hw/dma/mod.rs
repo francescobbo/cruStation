@@ -1,5 +1,5 @@
 // use crate::hw::vec::ByteSerialized;
-use crate::hw::bus::{BusDevice};
+use crate::hw::bus::BusDevice;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Direction {

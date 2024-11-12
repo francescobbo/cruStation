@@ -319,10 +319,10 @@ impl Gpu {
         let width = self.buffer[2] & 0xffff;
         let height = self.buffer[2] >> 16;
 
-        println!("[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
-            top_left_x, top_left_y,
-            width, height,
-            color_bgr24);
+        println!(
+            "[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
+            top_left_x, top_left_y, width, height, color_bgr24
+        );
     }
 
     fn gp0_03_nop2(&mut self) {

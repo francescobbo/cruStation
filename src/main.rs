@@ -1,7 +1,7 @@
 mod hw;
 
-use hw::bus::Bus;
 use crustationcpu::CpuCommand;
+use hw::bus::Bus;
 use std::cell::RefCell;
 use std::rc::Rc;
 

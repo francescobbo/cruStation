@@ -34,7 +34,7 @@ bitfield! {
     pub id_error, _: 3;
     /// Shell is open or _was open_ (is true the first time it's read, then false if the shell got closed)
     pub shel_open, _: 4;
-    
+
     /// Only one of reading, seeking and playing can be 1 at any point in time
     pub reading, _: 5;
     pub seeking, _: 6;
@@ -164,9 +164,7 @@ impl BusDevice for Cdrom {
     fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         println!(
             "[CDR] Write to reg {:04x} {:08x} of size {}",
-            addr,
-            value,
-            S
+            addr, value, S
         );
 
         if S != 1 {
