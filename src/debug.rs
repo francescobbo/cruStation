@@ -1,5 +1,7 @@
-// use rustyline::error::ReadlineError;
-// use rustyline::Editor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use rustyline::Editor;
 // use std::process;
 
 // use crate::hw::cpu::{Cpu, PsxBus};
@@ -10,32 +12,36 @@
 //     process::exit(-1);
 // }
 
-// pub struct Debugger {
-//     readline: Editor<()>,
-//     breakpoints: Vec<u32>,
-//     pub stepping: bool,
-//     next_breakpoint: u32,
-//     last_line: String,
-// }
+pub struct Debugger {
+    readline: Editor<()>,
+    breakpoints: Vec<u32>,
+    pub stepping: bool,
+    next_breakpoint: u32,
+    last_line: String,
 
-// fn effective_pc<T: PsxBus>(cpu: &Cpu<T>) -> u32 {
-//     if let Some((branch_delay, _)) = cpu.branch_delay_slot {
-//         branch_delay
-//     } else {
-//         cpu.pc
-//     }
-// }
+    pub triggered: Arc<AtomicBool>,
+}
 
-// impl Debugger {
-//     pub fn new() -> Debugger {
-//         Debugger {
-//             readline: Editor::<()>::new(),
-//             breakpoints: vec![],
-//             stepping: false,
-//             next_breakpoint: 0xffff_ffff,
-//             last_line: String::from(""),
-//         }
-//     }
+fn effective_pc(cpu: &crate::Cpu) -> u32 {
+    if let Some((branch_delay, _)) = cpu.branch_delay_slot {
+        branch_delay
+    } else {
+        cpu.pc
+    }
+}
+
+impl Debugger {
+    pub fn new() -> Debugger {
+        Debugger {
+            readline: Editor::<()>::new(),
+            breakpoints: vec![],
+            stepping: false,
+            next_breakpoint: 0xffff_ffff,
+            last_line: String::from(""),
+
+            triggered: Arc::new(AtomicBool::new(false)),
+        }
+    }
 
 //     pub fn enter<T: PsxBus>(cpu: &mut Cpu<T>) {
 //         cpu.debugger.stepping = false;
@@ -77,12 +83,18 @@
 //         }
 //     }
 
-//     pub fn should_break<T: PsxBus>(cpu: &Cpu<T>) -> bool {
-//         let pc = effective_pc(cpu);
-//         cpu.debugger.stepping
-//             || cpu.debugger.next_breakpoint == pc
-//             || cpu.debugger.breakpoints.contains(&pc)
-//     }
+    pub fn should_break(&self) -> bool {
+        // let pc = effective_pc(cpu);
+        // cpu.debugger.stepping
+            // || cpu.debugger.next_breakpoint == pc
+            // || cpu.debugger.breakpoints.contains(&pc)
+
+        self.triggered.load(Ordering::Relaxed)
+    }
+
+    pub fn trigger(&self) {
+        self.triggered.store(true, Ordering::Relaxed);
+    }
 
 //     fn run_debug_command<T: PsxBus>(line: String, cpu: &mut Cpu<T>) -> bool {
 //         let mut parsed = line.split_whitespace();
@@ -194,4 +206,4 @@
 //             }
 //         }
 //     }
-// }
+}

@@ -78,7 +78,7 @@ impl Gte {
     }
 
     fn lm_b_ptz(&mut self, which: usize, value: i32, ftv_value: i32, lm: bool) -> i16 {
-        let tmp: i32 = if lm { 1 << 15 } else { 0 };
+        let tmp: i32 = if lm { 0x8000 } else { 0 };
 
         if ftv_value < -0x8000 {
             self.flags.0 |= 1 << (24 - which);

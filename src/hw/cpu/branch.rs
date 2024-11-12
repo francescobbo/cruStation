@@ -1,6 +1,6 @@
-use crate::{Cpu, PsxBus};
+use super::Cpu;
 
-impl<T: PsxBus> Cpu<T> {
+impl Cpu {
     #[inline(always)]
     pub fn ins_j(&mut self) {
         let target = self.pc & 0xf000_0000;

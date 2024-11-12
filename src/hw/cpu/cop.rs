@@ -1,8 +1,8 @@
-use crate::{Cpu, Exception, PsxBus};
+use super::{Cpu, Exception};
 
 use crustationlogger::*;
 
-impl<T: PsxBus> Cpu<T> {
+impl Cpu {
     pub fn interrupt(&mut self) {
         debug!(self.logger, "Interrupt fired at {:08x}", self.pc);
 

@@ -1,14 +1,11 @@
 use crate::hw::vec::ByteSerialized;
 
 use std::fs::File;
-use std::sync::mpsc;
 
 use crate::hw::dma::{ChannelLink, Direction, SyncMode};
 use crate::hw::{Bios, Cdrom, Dma, Gpu, JoypadMemorycard, Ram, Spu, Timers};
-use crustationcpu::{Cpu, CpuCommand, PsxBus};
 
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -19,22 +16,27 @@ pub trait BusDevice {
 }
 
 pub struct Bus {
-    pub cpu: RefCell<Cpu<Bus>>,
-    pub cpu_tx: mpsc::Sender<CpuCommand>,
+    pub total_cycles: u64,
 
-    pub total_cycles: RefCell<u64>,
+    pub ram: Ram,
+    bios: Bios,
+    io: Vec<u8>,
+    cdrom: Cdrom,
+    dma: Dma,
+    spu: Spu,
+    gpu: Gpu,
+    timers: Timers,
+    joy_mc: JoypadMemorycard,
 
-    ram: RefCell<Ram>,
-    bios: RefCell<Bios>,
-    io: RefCell<Vec<u8>>,
-    cdrom: RefCell<Cdrom>,
-    dma: RefCell<Dma>,
-    spu: RefCell<Spu>,
-    gpu: RefCell<Gpu>,
-    timers: RefCell<Timers>,
-    joy_mc: RefCell<JoypadMemorycard>,
+    events: BinaryHeap<PsxEvent>,
 
-    events: RefCell<BinaryHeap<PsxEvent>>,
+    pub debugger: crate::debug::Debugger,
+}
+
+pub enum CpuCommand {
+    Noop,
+    Irq(u32),
+    EnqueueEvent(PsxEventType, u64, u64),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
@@ -64,36 +66,34 @@ impl PartialOrd for PsxEvent {
 
 impl Bus {
     pub fn new() -> Bus {
-        let cpu = RefCell::new(Cpu::new());
-        let cpu_tx = cpu.borrow().command_tx.clone();
+        let mut bus = Bus {
+            total_cycles: 0,
 
-        Bus {
-            total_cycles: RefCell::new(0),
+            ram: Ram::new(),
+            bios: Bios::new(),
+            io: vec![0; 0x1000 + 8 * 1024],
 
-            ram: RefCell::new(Ram::new()),
-            bios: RefCell::new(Bios::new()),
-            io: RefCell::new(vec![0; 0x1000 + 8 * 1024]),
+            cdrom: Cdrom::new(),
+            dma: Dma::new(),
+            spu: Spu::new(),
+            gpu: Gpu::new(),
+            timers: Timers::new(),
+            joy_mc: JoypadMemorycard::new(),
 
-            cdrom: RefCell::new(Cdrom::new()),
-            dma: RefCell::new(Dma::new()),
-            spu: RefCell::new(Spu::new()),
-            gpu: RefCell::new(Gpu::new()),
-            timers: RefCell::new(Timers::new()),
-            joy_mc: RefCell::new(JoypadMemorycard::new()),
+            events: BinaryHeap::new(),
 
-            cpu,
-            cpu_tx,
+            debugger: crate::debug::Debugger::new(),
+        };
 
-            events: RefCell::new(BinaryHeap::new()),
-        }
-    }
+        let cpu_freq = 33868800;
+        let vblank_freq = 60;
+        let vblank_cycles = cpu_freq / vblank_freq;
+        bus
+            .add_event(PsxEventType::VBlank, 0, vblank_cycles);
 
-    pub fn run(&self) {
-        self.cpu.borrow_mut().run();
-    }
+        bus.gpu.load_renderer();
 
-    pub fn run_until(&self, target_pc: u32) {
-        self.cpu.borrow_mut().run_until(target_pc);
+        bus
     }
 
     // pub fn run_for(&self, cycles: u64) {
@@ -103,23 +103,13 @@ impl Bus {
     //     }
     // }
 
-    /// Installs weak references of self into the devices to allow
-    /// omnidirectional communication
-    pub fn link(&self, self_ref: Rc<RefCell<Self>>) {
-        self.cpu.borrow_mut().link(self);
-        self.timers.borrow_mut().link(Rc::downgrade(&self_ref));
-        self.gpu.borrow_mut().link(Rc::downgrade(&self_ref));
-        self.gpu.borrow_mut().load_renderer();
-        self.cdrom.borrow_mut().link(Rc::downgrade(&self_ref));
-    }
-
-    pub fn load_rom(&self, path: &str) {
+    pub fn load_rom(&mut self, path: &str) {
         let mut file = File::open(path).unwrap();
-        self.bios.borrow_mut().load(&mut file);
+        self.bios.load(&mut file);
     }
 
-    pub fn write_io<const S: u32>(&self, addr: u32, value: u32) {
-        self.io.borrow_mut().write::<S>(addr as u32, value);
+    pub fn write_io<const S: u32>(&mut self, addr: u32, value: u32) {
+        self.io.write::<S>(addr as u32, value);
 
         match addr {
             0x1000 => {
@@ -171,21 +161,22 @@ impl Bus {
         addr & MASK[(addr >> 30) as usize]
     }
 
-    pub fn process_events(&self) {
-        let total = self.total_cycles.borrow();
-        let mut events = self.events.borrow_mut();
+    pub fn process_events(&mut self) -> Vec<CpuCommand> {
+        let total = self.total_cycles;
+        let mut commands = Vec::new();
 
-        while let Some(ev) = events.peek() {
-            if ev.cycles_target < *total {
-                let ev = events.pop().unwrap();
+        while let Some(ev) = self.events.peek() {
+            if ev.cycles_target < total {
+                let ev = self.events.pop().unwrap();
 
-                self.process_event(ev.kind);
+                let enqueue = self.process_event(ev.kind);
+                commands.extend(enqueue);
 
                 if ev.repeat > 0 {
-                    events.push(PsxEvent {
+                    self.events.push(PsxEvent {
                         kind: ev.kind,
                         repeat: ev.repeat,
-                        cycles_target: *total + ev.repeat,
+                        cycles_target: total + ev.repeat,
                     });
                 }
             } else {
@@ -194,22 +185,22 @@ impl Bus {
                 break;
             }
         }
+
+        commands
     }
 
-    pub fn add_event(&self, kind: PsxEventType, mut first_target: u64, repeat_after: u64) {
-        let mut events = self.events.borrow_mut();
-
+    pub fn add_event(&mut self, kind: PsxEventType, mut first_target: u64, repeat_after: u64) {
         // If an event of the same type exists, remove it
-        events.retain(|ev| ev.kind != kind);
+        self.events.retain(|ev| ev.kind != kind);
 
         if first_target == 0 && repeat_after != 0 {
-            first_target = *self.total_cycles.borrow() + repeat_after;
+            first_target = self.total_cycles + repeat_after;
         } else if first_target == 0 {
             panic!("Invalid event");
         }
 
         // New event
-        events.push(PsxEvent {
+        self.events.push(PsxEvent {
             kind,
             cycles_target: first_target,
             repeat: repeat_after,
@@ -217,53 +208,38 @@ impl Bus {
     }
 
     // pub fn remove_event(&self, kind: PsxEventType) {
-    //     let mut events = self.events.borrow_mut();
+    //     let mut events = self.events;
 
     //     // If an event of the same type exists, remove it
     //     events.retain(|ev| ev.kind != kind);
     // }
 
-    pub fn process_event(&self, kind: PsxEventType) {
+    pub fn process_event(&mut self, kind: PsxEventType) -> Vec<CpuCommand> {
         match kind {
             PsxEventType::DeliverCDRomResponse => {
-                self.cdrom.borrow_mut().next_response();
+                self.cdrom.next_response();
+                vec![CpuCommand::Irq(2)]
             }
             PsxEventType::VBlank => {
-                self.gpu.borrow_mut().vblank();
+                self.gpu.vblank();
+                vec![CpuCommand::Irq(0)]
             }
         }
-    }
-
-    pub fn send_irq(&self, irq_num: u32) {
-        if irq_num > 10 {
-            panic!("[BUS] Invalid IRQ number");
-        }
-
-        self.cpu_tx.send(CpuCommand::Irq(irq_num)).unwrap();
     }
 
     #[inline(always)]
-    fn add_cycles(&self, count: u64) {
-        (*self.total_cycles.borrow_mut()) += count;
-    }
-}
-
-impl PsxBus for Bus {
-    fn update_cycles(&self, cycles: u64) {
-        let mut total = self.total_cycles.borrow_mut();
-        (*total) += cycles;
-
-        drop(total);
-        self.process_events();
+    pub fn add_cycles(&mut self, count: u64) -> Vec<CpuCommand> {
+        self.total_cycles += count;
+        self.process_events()
     }
 
-    fn read<const S: u32>(&self, addr: u32) -> u32 {
+    pub fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         let addr = Bus::strip_region(addr);
 
         match addr {
             0x0000_0000..=0x001f_ffff => {
                 self.add_cycles(4);
-                self.ram.borrow_mut().read::<S>(addr)
+                self.ram.read::<S>(addr)
             }
             0x1f00_0000..=0x1f7f_ffff => {
                 self.add_cycles(6 * S as u64);
@@ -271,7 +247,7 @@ impl PsxBus for Bus {
             }
             0x1f80_1040..=0x1f80_104f => {
                 self.add_cycles(2);
-                self.joy_mc.borrow_mut().read::<S>(addr - 0x1f80_1040)
+                self.joy_mc.read::<S>(addr - 0x1f80_1040)
             }
             0x1f80_1050..=0x1f80_105f => {
                 // SIO
@@ -285,19 +261,28 @@ impl PsxBus for Bus {
             }
             0x1f80_1080..=0x1f80_10f4 => {
                 self.add_cycles(2);
-                self.dma.borrow_mut().read::<S>(addr - 0x1f80_1080)
+                self.dma.read::<S>(addr - 0x1f80_1080)
             }
             0x1f80_1100..=0x1f80_112f => {
                 self.add_cycles(2);
-                self.timers.borrow_mut().read::<S>(addr - 0x1f80_1100)
+                self.timers.read::<S>(addr - 0x1f80_1100, self.total_cycles)
             }
             0x1f80_1800..=0x1f80_1803 => {
                 self.add_cycles(6 * S as u64 + 1);
-                self.cdrom.borrow_mut().read::<S>(addr - 0x1f80_1800)
+                let (val, cmd) = self.cdrom.read::<S>(addr - 0x1f80_1800);
+
+                match cmd {
+                    CpuCommand::EnqueueEvent(evt, ft, ra) => {
+                        self.add_event(evt, ft, ra);
+                    }
+                    _ => {}
+                }
+
+                val
             }
             0x1f80_1810..=0x1f80_1814 => {
                 self.add_cycles(2);
-                self.gpu.borrow_mut().read::<S>(addr - 0x1f80_1810)
+                self.gpu.read::<S>(addr - 0x1f80_1810)
             }
             0x1f80_1820..=0x1f80_1824 => {
                 // MDEC
@@ -306,7 +291,7 @@ impl PsxBus for Bus {
             }
             0x1f80_1c00..=0x1f80_1fff => {
                 self.add_cycles(17);
-                self.spu.borrow_mut().read::<S>(addr - 0x1f80_1c00)
+                self.spu.read::<S>(addr - 0x1f80_1c00)
             }
             0x1f80_2000..=0x1f80_2080 => {
                 // EXP2 has some weeeeeird timings
@@ -329,8 +314,8 @@ impl PsxBus for Bus {
                 0xffffffff
             }
             0x1fc0_0000..=0x1fc8_0000 => {
-                (*self.total_cycles.borrow_mut()) += 6 * S as u64;
-                self.bios.borrow_mut().read::<S>(addr & 0xf_ffff)
+                self.total_cycles += 6 * S as u64;
+                self.bios.read::<S>(addr & 0xf_ffff)
             }
             _ => {
                 panic!("Read in memory hole at {:08x}", addr);
@@ -338,41 +323,45 @@ impl PsxBus for Bus {
         }
     }
 
-    fn write<const S: u32>(&self, addr: u32, value: u32) {
+    pub fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         match addr {
             0x0000_0000..=0x0020_0000 => {
-                self.ram.borrow_mut().write::<S>(addr, value);
+                self.ram.write::<S>(addr, value);
             }
             0x1f80_1040..=0x1f80_104f => {
                 self.joy_mc
-                    .borrow_mut()
                     .write::<S>(addr - 0x1f80_1040, value);
             }
             0x1f80_1050..=0x1f80_105f => {
                 // SIO: TODO
             }
             0x1f80_1080..=0x1f80_10f4 => {
-                self.dma.borrow_mut().write::<S>(addr - 0x1f80_1080, value);
+                self.dma.write::<S>(addr - 0x1f80_1080, value);
                 self.handle_dma_write();
             }
             0x1f80_1100..=0x1f80_112f => {
                 self.timers
-                    .borrow_mut()
-                    .write::<S>(addr - 0x1f80_1100, value);
+                    .write::<S>(addr - 0x1f80_1100, value, self.total_cycles);
             }
             0x1f80_1800..=0x1f80_1803 => {
-                self.cdrom
-                    .borrow_mut()
+                let cmd = self.cdrom
                     .write::<S>(addr - 0x1f80_1800, value);
+
+                match cmd {
+                    CpuCommand::EnqueueEvent(evt, ft, ra) => {
+                        self.add_event(evt, ft, ra);
+                    }
+                    _ => {}
+                }
             }
             0x1f80_1810..=0x1f80_1814 => {
-                self.gpu.borrow_mut().write::<S>(addr - 0x1f80_1810, value);
+                self.gpu.write::<S>(addr - 0x1f80_1810, value);
             }
             0x1f80_1820..=0x1f80_1824 => {
                 // MDEC: TODO
             }
             0x1f80_1c00..=0x1f80_1fff => {
-                self.spu.borrow_mut().write::<S>(addr - 0x1f80_1c00, value);
+                self.spu.write::<S>(addr - 0x1f80_1c00, value);
             }
             0x1f80_2000..=0x1f80_207f => {
                 // EXP2: ignore
@@ -392,11 +381,9 @@ impl PsxBus for Bus {
             }
         }
     }
-}
 
-impl Bus {
-    fn handle_dma_write(&self) {
-        if let Some(active_channel) = self.dma.borrow_mut().active_channel() {
+    fn handle_dma_write(&mut self) {
+        if let Some(active_channel) = self.dma.active_channel() {
             let step = active_channel.step();
             let mut addr = active_channel.base();
 
@@ -417,7 +404,7 @@ impl Bus {
                                         1 => 0xff_ffff,
                                         _ => addr.wrapping_add(step as u32) & 0x1f_fffc,
                                     };
-                                    self.ram.borrow_mut().write::<4>(addr, word);
+                                    self.ram.write::<4>(addr, word);
                                 }
                             }
                             addr = addr.wrapping_add(step as u32) & 0x1f_fffc;
@@ -430,15 +417,14 @@ impl Bus {
                     }
                     ChannelLink::Cdrom => {
                         let mut remaining_words = block_size * blocks;
-                        let mut cdrom = self.cdrom.borrow_mut();
                         while remaining_words > 0 {
                             match active_channel.direction() {
                                 Direction::ToRam => {
-                                    let value = cdrom.read::<1>(2)
-                                        | cdrom.read::<1>(2) << 8
-                                        | cdrom.read::<1>(2) << 16
-                                        | cdrom.read::<1>(2) << 24;
-                                    self.ram.borrow_mut().write::<4>(addr, value);
+                                    let value = self.cdrom.read::<1>(2).0
+                                        | self.cdrom.read::<1>(2).0 << 8
+                                        | self.cdrom.read::<1>(2).0 << 16
+                                        | self.cdrom.read::<1>(2).0 << 24;
+                                    self.ram.write::<4>(addr, value);
                                     addr = addr.wrapping_add(4);
                                     remaining_words -= 1;
                                 }
@@ -459,7 +445,7 @@ impl Bus {
                             loop {
                                 match active_channel.direction() {
                                     Direction::FromRam => {
-                                        let header = self.ram.borrow_mut().read::<4>(addr);
+                                        let header = self.ram.read::<4>(addr);
                                         let word_count = header >> 24;
 
                                         // if word_count > 0 {
@@ -469,8 +455,8 @@ impl Bus {
 
                                         for _ in 0..word_count {
                                             addr = addr.wrapping_add(step as u32);
-                                            let cmd = self.ram.borrow_mut().read::<4>(addr);
-                                            self.gpu.borrow_mut().process_gp0(cmd);
+                                            let cmd = self.ram.read::<4>(addr);
+                                            self.gpu.process_gp0(cmd);
                                         }
 
                                         addr = header & 0xffffff;
@@ -495,8 +481,8 @@ impl Bus {
                         for _ in 0..(blocks * block_size) as usize {
                             match active_channel.direction() {
                                 Direction::FromRam => {
-                                    let value = self.ram.borrow_mut().read::<4>(addr);
-                                    self.gpu.borrow_mut().process_gp0(value);
+                                    let value = self.ram.read::<4>(addr);
+                                    self.gpu.process_gp0(value);
                                     addr = addr.wrapping_add(step as u32);
                                 }
                                 Direction::ToRam => {
@@ -517,62 +503,4 @@ impl Bus {
             };
         }
     }
-
-    pub fn load_exe(&self, path: &str) {
-        use std::io::BufReader;
-        use std::io::Read;
-        use std::io::Seek;
-        use std::mem;
-
-        let mut header = PsxExeHeader::default();
-        let file = File::open(path).unwrap();
-        let mut reader = BufReader::new(file);
-
-        unsafe {
-            let buffer: &mut [u8] = std::slice::from_raw_parts_mut(
-                &mut header as *mut _ as *mut u8,
-                mem::size_of::<PsxExeHeader>(),
-            );
-
-            reader.read_exact(buffer).unwrap();
-        }
-
-        reader.seek(std::io::SeekFrom::Start(0x800)).unwrap();
-        let mut code = vec![0_u8; header.size as usize];
-        reader.read_exact(&mut code).unwrap();
-
-        let mut addr = header.destination & 0x1f_fffc;
-
-        let mut ram = self.ram.borrow_mut();
-
-        for b in code.iter() {
-            ram.write::<1>(addr, *b as u32);
-            addr = (addr + 1) & 0x3f_ffff;
-        }
-
-        let mut cpu = self.cpu.borrow_mut();
-        cpu.pc = header.pc;
-        cpu.regs[28] = header.r28;
-        cpu.regs[29] = header.r29_base + header.r29_offset;
-
-        if cpu.regs[29] == 0 {
-            cpu.regs[29] = 0x801f_fff0;
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-#[repr(C)]
-pub struct PsxExeHeader {
-    signature: [u8; 8],
-    zero1: [u8; 8],
-    pc: u32,
-    r28: u32,
-    destination: u32,
-    size: u32,
-    zero2: [u32; 2],
-    memfill_address: u32,
-    memfill_size: u32,
-    r29_base: u32,
-    r29_offset: u32,
 }

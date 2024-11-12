@@ -4,6 +4,8 @@ use std::rc::Weak;
 
 use bitfield::bitfield;
 
+use super::bus;
+
 bitfield! {
     struct CounterStatus(u32);
     impl Debug;
@@ -27,8 +29,6 @@ struct Timer {
     target: u16,
     status: CounterStatus,
     last_update_cycles: u64,
-
-    bus: Weak<RefCell<Bus>>,
 }
 
 impl Timer {
@@ -39,20 +39,18 @@ impl Timer {
             target: 0,
             status: CounterStatus(0x400),
             last_update_cycles: 0,
-
-            bus: Weak::new(),
         }
     }
 
-    pub fn write_current_value(&mut self, value: u16) {
+    pub fn write_current_value(&mut self, value: u16, bus_total_cycles: u64) {
         self.current = value;
 
-        self.refresh_cycles();
+        self.refresh_cycles(bus_total_cycles);
 
         //println!("Wrote {:08x} value to tmr{}", value, self.n);
     }
 
-    pub fn write_status(&mut self, mut value: u32) {
+    pub fn write_status(&mut self, mut value: u32, bus_total_cycles: u64) {
         // Can only set bits 0-9
         value &= 0x3ff;
 
@@ -63,7 +61,7 @@ impl Timer {
 
         // Reset current value on status writes
         self.current = 0;
-        self.refresh_cycles();
+        self.refresh_cycles(bus_total_cycles);
         //println!("Wrote {:08x} mode to tmr{} ({:?})", self.status.0, self.n, self.status);
     }
 
@@ -72,8 +70,8 @@ impl Timer {
         //println!("Wrote {:08x} target to tmr{}", value, self.n);
     }
 
-    pub fn get_current_value(&mut self) -> u16 {
-        let previous_cycles = self.refresh_cycles();
+    pub fn get_current_value(&mut self, bus_total_cycles: u64) -> u16 {
+        let previous_cycles = self.refresh_cycles(bus_total_cycles);
 
         // Thank you modular arithmetic
         let delta = (self.last_update_cycles - previous_cycles) as u16;
@@ -101,9 +99,9 @@ impl Timer {
         self.current
     }
 
-    fn refresh_cycles(&mut self) -> u64 {
+    fn refresh_cycles(&mut self, bus_total_cycles: u64) -> u64 {
         let old = self.last_update_cycles;
-        self.last_update_cycles = *self.bus.upgrade().unwrap().borrow().total_cycles.borrow();
+        self.last_update_cycles = bus_total_cycles;
 
         old
     }
@@ -120,15 +118,7 @@ impl Timers {
         }
     }
 
-    pub fn link(&mut self, bus: Weak<RefCell<Bus>>) {
-        self.timers[0].bus = bus.clone();
-        self.timers[1].bus = bus.clone();
-        self.timers[2].bus = bus;
-    }
-}
-
-impl BusDevice for Timers {
-    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+    pub fn read<const S: u32>(&mut self, addr: u32, bus_total_cycles: u64) -> u32 {
         let n = (addr >> 4) as usize;
 
         if n > 2 {
@@ -138,7 +128,7 @@ impl BusDevice for Timers {
 
         let timer = &mut self.timers[n];
         let val = match addr & 0xf {
-            0x0 => timer.get_current_value() as u32,
+            0x0 => timer.get_current_value(bus_total_cycles) as u32,
             0x4 => {
                 let value = timer.status.0;
 
@@ -159,7 +149,7 @@ impl BusDevice for Timers {
         val
     }
 
-    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+    pub fn write<const S: u32>(&mut self, addr: u32, value: u32, bus_total_cycles: u64) {
         let n = (addr >> 4) as usize;
 
         if n > 2 {
@@ -170,10 +160,10 @@ impl BusDevice for Timers {
         let timer = &mut self.timers[n];
         match addr & 0xf {
             0x0 => {
-                timer.write_current_value(value as u16);
+                timer.write_current_value(value as u16, bus_total_cycles);
             }
             0x4 => {
-                timer.write_status(value);
+                timer.write_status(value, bus_total_cycles);
             }
             0x8 => {
                 timer.write_target(value as u16);

@@ -1,6 +1,6 @@
-use crate::{Cpu, Exception, LoadDelaySlot, PsxBus};
+use super::{Cpu, Exception, LoadDelaySlot};
 
-impl<B: PsxBus> Cpu<B> {
+impl Cpu {
     #[inline(always)]
     pub fn ls_address(&self) -> u32 {
         let imm = self.current_instruction.simm16() as u32;
@@ -172,7 +172,7 @@ impl<B: PsxBus> Cpu<B> {
         };
     }
 
-    pub fn load<const T: u32>(&self, address: u32) -> u32 {
+    pub fn load<const T: u32>(&mut self, address: u32) -> u32 {
         if self.cop0.isolate_cache {
             // TODO: not sure what to do here.
         }
@@ -180,9 +180,7 @@ impl<B: PsxBus> Cpu<B> {
         match address {
             0xfffe_0130 => {
                 if T != 1 {
-                    unsafe {
-                        (*self.bus).update_cycles(1);
-                    }
+                    self.extra_cycles += 1;
                 }
                 self.biu_cc.0
             }
@@ -199,18 +197,16 @@ impl<B: PsxBus> Cpu<B> {
                 match address {
                     0x1f80_0000..=0x1f80_03ff => self.dcache.read::<T>(address & 0x3ff),
                     0x1f80_1070 => {
-                        unsafe {
-                            (*self.bus).update_cycles(2);
-                        }
+                        self.extra_cycles += 2;
                         self.i_stat
                     }
                     0x1f80_1074 => {
-                        unsafe {
-                            (*self.bus).update_cycles(2);
-                        }
+                        self.extra_cycles += 2;
                         self.i_mask
                     }
-                    _ => unsafe { (*self.bus).read::<T>(address) },
+                    _ => unsafe { 
+                        self.bus.read::<T>(address)
+                    },
                 }
             }
         }
@@ -255,7 +251,7 @@ impl<B: PsxBus> Cpu<B> {
                         self.check_interrupts();
                     }
                     _ => unsafe {
-                        (*self.bus).write::<T>(address, value);
+                        self.bus.write::<T>(address, value);
                     },
                 }
             }

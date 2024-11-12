@@ -1,9 +1,12 @@
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
+use crate::Cpu;
 use bitfield::bitfield;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use std::cell::RefCell;
 use std::rc::Weak;
+
+use super::bus::CpuCommand;
 
 bitfield! {
     struct ControllerStatus(u8);
@@ -48,33 +51,12 @@ struct Interrupt {
 }
 
 pub struct Cdrom {
-    bus: Weak<RefCell<Bus>>,
-
     controller_status: ControllerStatus,
     stat: Stat,
 
     parameters: AllocRingBuffer<u8>,
     pending_irqs: AllocRingBuffer<Interrupt>,
     interrupt_enable: u8,
-}
-
-impl Cdrom {
-    pub fn new() -> Cdrom {
-        Cdrom {
-            bus: Weak::new(),
-
-            controller_status: ControllerStatus(0),
-            stat: Stat(0),
-
-            parameters: AllocRingBuffer::with_capacity(16),
-            pending_irqs: AllocRingBuffer::with_capacity(16),
-            interrupt_enable: 0,
-        }
-    }
-
-    pub fn link(&mut self, bus: Weak<RefCell<Bus>>) {
-        self.bus = bus;
-    }
 }
 
 // When reading from the CDROM controller, reads of sizes larger than 1 byte are
@@ -90,9 +72,22 @@ fn grow_to<const S: u32>(value: u8) -> u32 {
     }
 }
 
-impl BusDevice for Cdrom {
-    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
-        // print!("[CDR] Read {:04x}: ", addr);
+impl Cdrom {
+    pub fn new() -> Cdrom {
+        Cdrom {
+            controller_status: ControllerStatus(0),
+            stat: Stat(0),
+
+            parameters: AllocRingBuffer::with_capacity(16),
+            pending_irqs: AllocRingBuffer::with_capacity(16),
+            interrupt_enable: 0,
+        }
+    }
+
+    pub fn read<const S: u32>(&mut self, addr: u32) -> (u32, CpuCommand) {
+        print!("[CDR] Read {:04x}: ", addr);
+
+        let mut command = CpuCommand::Noop;
 
         let val = match addr {
             0 => {
@@ -113,11 +108,7 @@ impl BusDevice for Cdrom {
                         if irq.data.is_empty() && irq.acknowledged {
                             self.pending_irqs.dequeue();
                             if !self.pending_irqs.is_empty() {
-                                self.bus.upgrade().unwrap().borrow().add_event(
-                                    PsxEventType::DeliverCDRomResponse,
-                                    50000,
-                                    0,
-                                );
+                                command = CpuCommand::EnqueueEvent(PsxEventType::DeliverCDRomResponse, 50000, 0);
                             }
                         }
 
@@ -158,10 +149,10 @@ impl BusDevice for Cdrom {
         };
 
         // println!("{:02x}: ", val);
-        grow_to::<S>(val)
+        (grow_to::<S>(val), command)
     }
 
-    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+    pub fn write<const S: u32>(&mut self, addr: u32, value: u32) -> CpuCommand {
         println!(
             "[CDR] Write to reg {:04x} {:08x} of size {}",
             addr, value, S
@@ -176,23 +167,27 @@ impl BusDevice for Cdrom {
         match addr {
             0 => {
                 self.controller_status.set_index(value & 3);
+                CpuCommand::Noop
             }
             1 => {
                 match self.controller_status.index() {
                     0 => {
-                        self.handle_command(value);
+                        self.handle_command(value)
                     }
                     1 => {
                         // sound map data out
                         println!("[CDR] Wrote sound map data {:02x}", value);
+                        CpuCommand::Noop
                     }
                     2 => {
                         // sound map coding info
                         println!("[CDR] Wrote sound coding {:02x}", value);
+                        CpuCommand::Noop
                     }
                     3 => {
                         // Audio Volume for Right-CD-Out to Right-SPU-Input
                         println!("[CDR] Wrote audio vol r-to-r {:02x}", value);
+                        CpuCommand::Noop
                     }
                     _ => unreachable!(),
                 }
@@ -217,6 +212,8 @@ impl BusDevice for Cdrom {
                     }
                     _ => unreachable!(),
                 }
+
+                CpuCommand::Noop
             }
             3 => {
                 match self.controller_status.index() {
@@ -238,11 +235,7 @@ impl BusDevice for Cdrom {
                             if irq.data.is_empty() {
                                 self.pending_irqs.dequeue();
                                 if !self.pending_irqs.is_empty() {
-                                    self.bus.upgrade().unwrap().borrow().add_event(
-                                        PsxEventType::DeliverCDRomResponse,
-                                        50000,
-                                        0,
-                                    );
+                                    return CpuCommand::EnqueueEvent(PsxEventType::DeliverCDRomResponse, 50000, 0);
                                 }
                             }
                         }
@@ -257,48 +250,52 @@ impl BusDevice for Cdrom {
                     }
                     _ => unreachable!(),
                 }
+
+                CpuCommand::Noop
             }
             _ => panic!("[CDR] Invalid addr"),
-        };
+        }
     }
 }
 
 impl Cdrom {
-    fn handle_command(&mut self, command: u8) {
+    fn handle_command(&mut self, command: u8) -> CpuCommand {
         match command {
             0x01 => {
                 println!("Started CDROM stat");
-                self.enqueue_interrupt(3, &[self.stat.0]);
+                self.enqueue_interrupt(3, &[self.stat.0])
             }
             0x02 => {
-                self.enqueue_interrupt(3, &[self.stat.0]);
+                println!("ReadN");
+                self.enqueue_interrupt(3, &[self.stat.0])
             }
             0x06 => {
                 println!("ReadN");
                 self.enqueue_interrupt(3, &[0x20]);
                 self.enqueue_interrupt(1, &[]);
                 self.enqueue_interrupt(1, &[]);
-                self.enqueue_interrupt(1, &[]);
+                self.enqueue_interrupt(1, &[])
             }
             0x09 => {
                 println!("Pause");
                 self.enqueue_interrupt(3, &[self.stat.0]);
-                self.enqueue_interrupt(2, &[self.stat.0]);
+                self.enqueue_interrupt(2, &[self.stat.0])
             }
             0x0e => {
                 println!("Set mode {:02x}", self.parameters.get(0).unwrap());
-                self.enqueue_interrupt(3, &[self.stat.0]);
+                self.enqueue_interrupt(3, &[self.stat.0])
             }
             0x15 => {
                 self.enqueue_interrupt(3, &[self.stat.0]);
-                self.enqueue_interrupt(2, &[self.stat.0]);
+                self.enqueue_interrupt(2, &[self.stat.0])
             }
             0x19 => {
                 self.command_test();
+                CpuCommand::Noop
             }
             0x1a => {
                 self.enqueue_interrupt(3, &[self.stat.0]);
-                self.enqueue_interrupt(5, &[2, 0, 0x20, 0, b'S', b'C', b'E', b'A']);
+                self.enqueue_interrupt(5, &[2, 0, 0x20, 0, b'S', b'C', b'E', b'A'])
             }
             _ => {
                 panic!("[CDR] Cannot do {:02x}", command);
@@ -318,24 +315,20 @@ impl Cdrom {
         }
     }
 
-    fn enqueue_interrupt(&mut self, irq: u32, response: &[u8]) {
+    fn enqueue_interrupt(&mut self, irq: u32, response: &[u8]) -> CpuCommand {
         self.pending_irqs.push(Interrupt {
             number: irq,
             data: response.to_vec(),
             acknowledged: false,
         });
 
-        self.bus.upgrade().unwrap().borrow().add_event(
-            PsxEventType::DeliverCDRomResponse,
-            50000,
-            0,
-        );
+        CpuCommand::EnqueueEvent(PsxEventType::DeliverCDRomResponse, 50000, 0)
     }
 
-    pub fn next_response(&mut self) {
+    pub fn next_response(&mut self) -> CpuCommand {
         // let response = self.pending_irqs.get(0).unwrap();
 
         println!("Deliver CDROM response");
-        self.bus.upgrade().unwrap().borrow().send_irq(2);
+        CpuCommand::Irq(2)
     }
 }

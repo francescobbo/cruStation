@@ -9,8 +9,7 @@ mod instruction;
 mod load_store;
 mod scratchpad;
 
-use std::sync::mpsc;
-// use std::time::{SystemTime, UNIX_EPOCH};
+use std::{collections::VecDeque, fs::File};
 
 use crustationlogger::*;
 
@@ -21,16 +20,9 @@ use icache::InstructionCache;
 use instruction::Instruction;
 use scratchpad::Scratchpad;
 
-pub trait PsxBus {
-    fn read<const T: u32>(&self, address: u32) -> u32;
-    fn write<const T: u32>(&self, address: u32, value: u32);
-    fn update_cycles(&self, cycles: u64);
-}
+use crate::hw::bus::BusDevice;
 
-pub enum CpuCommand {
-    Break,
-    Irq(u32),
-}
+use super::bus::{Bus, CpuCommand};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct LoadDelaySlot {
@@ -38,13 +30,10 @@ struct LoadDelaySlot {
     value: u32,
 }
 
-pub struct Cpu<T: PsxBus> {
+pub struct Cpu {
     logger: Logger,
 
-    pub bus: *const T,
-
-    command_rx: mpsc::Receiver<CpuCommand>,
-    pub command_tx: mpsc::Sender<CpuCommand>,
+    pub bus: Bus,
 
     pub pc: u32,
     pub regs: [u32; 33],
@@ -62,21 +51,21 @@ pub struct Cpu<T: PsxBus> {
     i_mask: u32,
 
     current_instruction: Instruction,
-    branch_delay_slot: Option<(u32, u32)>,
+    pub branch_delay_slot: Option<(u32, u32)>,
     load_delay_slot: [LoadDelaySlot; 2],
     in_delay: bool,
+
+
+    extra_cycles: u64,
+
+    pub tasks: VecDeque<CpuCommand>,
 }
 
-impl<T: PsxBus> Cpu<T> {
-    pub fn new() -> Cpu<T> {
-        let (tx, rx) = mpsc::channel();
-
+impl Cpu {
+    pub fn new() -> Cpu {
         Cpu {
             logger: Logger::new("CPU", Level::Info),
-            bus: std::ptr::null(),
-
-            command_rx: rx,
-            command_tx: tx,
+            bus: Bus::new(),
 
             pc: 0xbfc0_0000,
             regs: [0; 33],
@@ -111,11 +100,10 @@ impl<T: PsxBus> Cpu<T> {
             //     .duration_since(UNIX_EPOCH)
             //     .unwrap()
             //     .as_millis(),
-        }
-    }
 
-    pub fn link(&mut self, bus: &T) {
-        self.bus = bus as *const T;
+            extra_cycles: 0,
+            tasks: VecDeque::new(),
+        }
     }
 
     #[inline(always)]
@@ -153,15 +141,41 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
+    // pub fn run(&mut self) {
+    //     loop {
+    //         self.step();
+    //     }
+    // }
+
     pub fn run(&mut self) {
         loop {
-            self.cycle();
+            if let Some(command) = self.tasks.pop_front() {
+                match command {
+                    CpuCommand::Irq(n) => {
+                        self.request_interrupt(n);
+                    }
+                    _ => {}
+                }
+            }
+
+            let cycles = self.step();
+            self.tasks.extend(self.bus.add_cycles(cycles));
         }
     }
 
     pub fn run_until(&mut self, desired_pc: u32) {
         loop {
-            self.cycle();
+            if let Some(command) = self.tasks.pop_front() {
+                match command {
+                    CpuCommand::Irq(n) => {
+                        self.request_interrupt(n);
+                    }
+                    _ => {}
+                }
+            }       
+
+            let cycles = self.step();
+            self.tasks.extend(self.bus.add_cycles(cycles));
 
             if self.pc == desired_pc {
                 break;
@@ -169,24 +183,23 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
-    pub fn cycle(&mut self) {
-        if let Ok(command) = self.command_rx.try_recv() {
-            match command {
-                CpuCommand::Break => {
-                    // println!();
-                    // debug::Debugger::enter(self);
-                }
-                CpuCommand::Irq(n) => {
-                    self.request_interrupt(n);
-                }
-            }
+
+    pub fn send_irq(&mut self, irq_num: u32) {
+        if irq_num > 10 {
+            panic!("[BUS] Invalid IRQ number");
         }
+
+        self.tasks.push_back(CpuCommand::Irq(irq_num));
+    }
+
+    pub fn step(&mut self) -> u64 {
+        self.extra_cycles = 0;
 
         // if debug::Debugger::should_break(self) {
         //     debug::Debugger::enter(self);
         // }
 
-        self.step();
+        self.step_inner();
 
         // match self.pc() {
         //     0xa0 => Bios::call_a(self),
@@ -199,9 +212,7 @@ impl<T: PsxBus> Cpu<T> {
             self.interrupt();
         }
 
-        unsafe {
-            (*self.bus).update_cycles(1);
-        }
+        return 1 + self.extra_cycles;
     }
 
     #[inline(always)]
@@ -214,7 +225,7 @@ impl<T: PsxBus> Cpu<T> {
     }
 
     #[inline(always)]
-    pub fn step(&mut self) {
+    pub fn step_inner(&mut self) {
         if let Some((_pc, ins)) = self.branch_delay_slot {
             self.in_delay = true;
             self.current_instruction.0 = ins;
@@ -369,5 +380,64 @@ impl<T: PsxBus> Cpu<T> {
         if self.load_delay_slot[0].register == reg {
             self.load_delay_slot[0].register = 32;
         }
+    }    
+
+    pub fn load_exe(&mut self, path: &str) {
+        use std::io::BufReader;
+        use std::io::Read;
+        use std::io::Seek;
+        use std::mem;
+
+        let mut header = PsxExeHeader::default();
+        let file = File::open(path).unwrap();
+        let mut reader = BufReader::new(file);
+
+        unsafe {
+            let buffer: &mut [u8] = std::slice::from_raw_parts_mut(
+                &mut header as *mut _ as *mut u8,
+                mem::size_of::<PsxExeHeader>(),
+            );
+
+            reader.read_exact(buffer).unwrap();
+        }
+
+        reader.seek(std::io::SeekFrom::Start(0x800)).unwrap();
+        let mut code = vec![0_u8; header.size as usize];
+        reader.read_exact(&mut code).unwrap();
+
+        let mut addr = header.destination & 0x1f_fffc;
+
+        let ram = &mut self.bus.ram;
+
+        for b in code.iter() {
+            ram.write::<1>(addr, *b as u32);
+            addr = (addr + 1) & 0x3f_ffff;
+        }
+
+        self.pc = header.pc;
+        self.regs[28] = header.r28;
+        self.regs[29] = header.r29_base + header.r29_offset;
+
+        if self.regs[29] == 0 {
+            self.regs[29] = 0x801f_fff0;
+        }
     }
+
+}
+
+
+#[derive(Debug, Default)]
+#[repr(C)]
+pub struct PsxExeHeader {
+    signature: [u8; 8],
+    zero1: [u8; 8],
+    pc: u32,
+    r28: u32,
+    destination: u32,
+    size: u32,
+    zero2: [u32; 2],
+    memfill_address: u32,
+    memfill_size: u32,
+    r29_base: u32,
+    r29_offset: u32,
 }

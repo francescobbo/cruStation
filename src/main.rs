@@ -1,23 +1,21 @@
 mod hw;
+mod debug;
 
-use crustationcpu::CpuCommand;
-use hw::bus::Bus;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::atomic::Ordering;
+
+pub use hw::Ram;
+pub use hw::Cpu;
 
 fn main() {
-    let bus_rc = Rc::new(RefCell::new(Bus::new()));
-    let bus = bus_rc.borrow();
-    let cpu = bus.cpu.borrow_mut();
+    let mut cpu = Cpu::new();
 
-    let cpu_tx = bus.cpu_tx.clone();
-
+    let breakpoint = cpu.bus.debugger.triggered.clone();
     ctrlc::set_handler(move || {
-        cpu_tx.send(CpuCommand::Break).unwrap();
+        breakpoint.store(true, Ordering::Relaxed);
     })
     .expect("Error setting Ctrl-C handler");
 
-    drop(cpu);
+    cpu.bus.load_rom("bios/PSXONPSP660.BIN");
 
     bus.load_rom("bios/SCPH1001.BIN");
     bus.link(bus_rc.clone());

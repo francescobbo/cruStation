@@ -1,5 +1,6 @@
 mod bios;
 pub mod bus;
+mod cpu;
 mod cdrom;
 pub mod disasm;
 mod dma;
@@ -12,9 +13,10 @@ mod vec;
 
 use crate::hw::bios::Bios;
 use crate::hw::cdrom::Cdrom;
+pub use crate::hw::cpu::Cpu;
 use crate::hw::dma::Dma;
 use crate::hw::gpu::Gpu;
 use crate::hw::joy_mc::JoypadMemorycard;
-use crate::hw::ram::Ram;
+pub use crate::hw::ram::Ram;
 use crate::hw::spu::Spu;
 use crate::hw::timers::Timers;
