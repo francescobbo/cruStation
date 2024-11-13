@@ -1,5 +1,5 @@
 use gl::types::{GLint, GLshort, GLsizei, GLsizeiptr, GLubyte, GLuint};
-use sdl2::video::GLProfile;
+use sdl3::video::GLProfile;
 
 use std::mem::size_of;
 use std::ptr;
@@ -10,15 +10,12 @@ use crate::hw::gpu::shaders::{
 };
 
 pub struct Renderer {
-    /// SDL2 Window
+    /// SDL3 Window
     #[allow(dead_code)]
-    window: sdl2::video::Window,
+    window: sdl3::video::Window,
     /// OpenGL Context
     #[allow(dead_code)]
-    gl_context: sdl2::video::GLContext,
-    /// SDL2 Event Pump
-    #[allow(dead_code)]
-    event_pump: sdl2::EventPump,
+    gl_context: sdl3::video::GLContext,
     /// Framebuffer horizontal resolution (native: 1024)
     fb_x_res: u16,
     /// Framebuffer vertical resolution (native: 512)
@@ -47,13 +44,8 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> Renderer {
-        let sdl_context = sdl2::init().expect("Failed to initialize SDL");
-
-        if !sdl2::hint::set("SDL_HINT_RENDER_VSYNC", "1") {
-            println!("Warning: Could not set SDL_HINT_RENDER_VSYNC");
-        }
-    
-        let video_subsystem = sdl_context.video().expect("Failed to get video subsystem");
+        let sdl_context = sdl3::init().unwrap();
+        let video_subsystem = sdl_context.video().unwrap();
 
         let gl_attr = video_subsystem.gl_attr();
         gl_attr.set_context_profile(GLProfile::Core);
@@ -68,11 +60,12 @@ impl Renderer {
             .build()
             .expect("Failed to create window");
 
-        let gl_context = window.gl_create_context().expect("Failed to create GL context");
+        println!("Window flags: {:?}", window.window_flags());
 
+        let gl_context = window.gl_create_context().unwrap();
         window.gl_make_current(&gl_context).expect("Failed to make GL context current");
 
-        gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as *const std::os::raw::c_void);
+        gl::load_with(|s| video_subsystem.gl_get_proc_address(s).unwrap() as *const std::os::raw::c_void);
 
         unsafe {
             gl::ClearColor(0.1, 0.1, 0.15, 1.0);
@@ -137,12 +130,12 @@ impl Renderer {
             gl::Uniform2i(uniform_offset, 0, 0);
         }
 
-        let mut event_pump = sdl_context.event_pump().expect("Failed to get event pump");
+        // let mut event_pump = sdl_context.event_pump().expect("Failed to get event pump");
 
         Renderer {
             window,
             gl_context,
-            event_pump,
+            // event_pump,
             fb_x_res: 1024,
             fb_y_res: 512,
             vertex_shader,
@@ -208,15 +201,15 @@ impl Renderer {
     }
 
     pub fn poll_events(&mut self) {
-        for event in self.event_pump.poll_iter() {
-            match event {
-                sdl2::event::Event::Quit { .. } => {
-                    println!("Quit event received");
-                    std::process::exit(0);
-                }
-                _ => {}
-            }
-        }
+        // for event in self.event_pump.poll_iter() {
+        //     match event {
+        //         sdl2::event::Event::Quit { .. } => {
+        //             println!("Quit event received");
+        //             std::process::exit(0);
+        //         }
+        //         _ => {}
+        //     }
+        // }
     }
 
     pub fn set_draw_offset(&mut self, x: i16, y: i16) {
