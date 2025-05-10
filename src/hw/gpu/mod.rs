@@ -153,7 +153,9 @@ impl Gpu {
         self.gpustat.set_irq(true);
         self.bus.upgrade().unwrap().borrow().send_irq(0);
 
+        println!("VSync IRQ");
         if let Some(renderer) = &mut self.renderer {
+            renderer.poll_events();
             renderer.draw();
         }
     }

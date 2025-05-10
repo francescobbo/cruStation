@@ -16,6 +16,9 @@ pub struct Renderer {
     /// OpenGL Context
     #[allow(dead_code)]
     gl_context: sdl2::video::GLContext,
+    /// SDL2 Event Pump
+    #[allow(dead_code)]
+    event_pump: sdl2::EventPump,
     /// Framebuffer horizontal resolution (native: 1024)
     fb_x_res: u16,
     /// Framebuffer vertical resolution (native: 512)
@@ -44,13 +47,18 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> Renderer {
-        let sdl_context = sdl2::init().unwrap();
-        let video_subsystem = sdl_context.video().unwrap();
+        let sdl_context = sdl2::init().expect("Failed to initialize SDL");
+
+        if !sdl2::hint::set("SDL_HINT_RENDER_VSYNC", "1") {
+            println!("Warning: Could not set SDL_HINT_RENDER_VSYNC");
+        }
+    
+        let video_subsystem = sdl_context.video().expect("Failed to get video subsystem");
 
         let gl_attr = video_subsystem.gl_attr();
         gl_attr.set_context_profile(GLProfile::Core);
-        gl_attr.set_context_flags().debug().set();
-        gl_attr.set_context_version(3, 1);
+        gl_attr.set_context_flags().debug().forward_compatible().set();
+        gl_attr.set_context_version(4, 1);
         gl_attr.set_multisample_buffers(1);
         gl_attr.set_multisample_samples(4);
 
@@ -58,14 +66,16 @@ impl Renderer {
             .window("RPSX", 1024, 512)
             .opengl()
             .build()
-            .unwrap();
+            .expect("Failed to create window");
 
-        let gl_context = window.gl_create_context().unwrap();
+        let gl_context = window.gl_create_context().expect("Failed to create GL context");
+
+        window.gl_make_current(&gl_context).expect("Failed to make GL context current");
 
         gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as *const std::os::raw::c_void);
 
         unsafe {
-            gl::ClearColor(0., 0., 0., 1.0);
+            gl::ClearColor(0.1, 0.1, 0.15, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::Enable(gl::SCISSOR_TEST);
             gl::Scissor(0, 0, 1024_i32, 512_i32);
@@ -127,9 +137,12 @@ impl Renderer {
             gl::Uniform2i(uniform_offset, 0, 0);
         }
 
+        let mut event_pump = sdl_context.event_pump().expect("Failed to get event pump");
+
         Renderer {
             window,
             gl_context,
+            event_pump,
             fb_x_res: 1024,
             fb_y_res: 512,
             vertex_shader,
@@ -160,31 +173,50 @@ impl Renderer {
 
     pub fn draw(&mut self) {
         unsafe {
+            // gl::ClearColor(0.1, 0.1, 0.15, 1.0);
+            // gl::Clear(gl::COLOR_BUFFER_BIT); // Add | gl::DEPTH_BUFFER_BIT if using depth testing
+    
             // Make sure all the data from the persistent mappings is
             // flushed to the buffer
-            gl::MemoryBarrier(gl::CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+            // gl::FlushMappedBufferRange(
+            //     gl::ARRAY_BUFFER,
+            //     0,
+            //     (self.nvertices * size_of::<Position>() as u32) as GLsizeiptr,
+            // );
 
             gl::DrawArrays(gl::TRIANGLES, 0, self.nvertices as GLsizei);
         }
 
         // Wait for GPU to complete
-        unsafe {
-            let sync = gl::FenceSync(gl::SYNC_GPU_COMMANDS_COMPLETE, 0);
+        // unsafe {
+        //     let sync = gl::FenceSync(gl::SYNC_GPU_COMMANDS_COMPLETE, 0);
 
-            loop {
-                let r = gl::ClientWaitSync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, 10000000);
+        //     loop {
+        //         let r = gl::ClientWaitSync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, 10000000);
 
-                if r == gl::ALREADY_SIGNALED || r == gl::CONDITION_SATISFIED {
-                    // Drawing done
-                    break;
-                }
-            }
-        }
+        //         if r == gl::ALREADY_SIGNALED || r == gl::CONDITION_SATISFIED {
+        //             // Drawing done
+        //             break;
+        //         }
+        //     }
+        // }
 
         // Reset the buffers
         self.nvertices = 0;
 
         self.window.gl_swap_window();
+    }
+
+    pub fn poll_events(&mut self) {
+        for event in self.event_pump.poll_iter() {
+            match event {
+                sdl2::event::Event::Quit { .. } => {
+                    println!("Quit event received");
+                    std::process::exit(0);
+                }
+                _ => {}
+            }
+        }
     }
 
     pub fn set_draw_offset(&mut self, x: i16, y: i16) {
@@ -193,6 +225,7 @@ impl Renderer {
 
         // Update the uniform value
         unsafe {
+            println!("Setting offset to {} {}", x, y);
             gl::Uniform2i(self.uniform_offset, x as GLint, y as GLint);
         }
     }
@@ -232,6 +265,10 @@ impl Renderer {
                 gl::Scissor(0, 0, 0, 0);
             }
         } else {
+            println!(
+                "Setting drawing area: {}x{} [{}x{}->{}x{}]",
+                width, height, left, top, right, bottom
+            );
             unsafe {
                 gl::Scissor(left, bottom, width, height);
             }
@@ -295,25 +332,52 @@ impl<T: Copy + Default> Buffer<T> {
     pub fn new() -> Buffer<T> {
         let mut object = 0;
         let memory;
+        const BUFFER_CAPACITY_ELEMENTS: usize = 64 * 1024;
 
         unsafe {
+            // Generate the buffer ID
             gl::GenBuffers(1, &mut object);
+            // Bind the buffer to the ARRAY_BUFFER target
             gl::BindBuffer(gl::ARRAY_BUFFER, object);
 
+            // Calculate the size of the buffer in bytes
             let element_size = size_of::<T>() as GLsizeiptr;
-            let buffer_size = element_size * 64 * 1024;
+            let buffer_size_bytes = element_size * (BUFFER_CAPACITY_ELEMENTS as GLsizeiptr);
 
-            let access = gl::MAP_WRITE_BIT | gl::MAP_PERSISTENT_BIT;
+            // Allocate buffer data store using glBufferData.
+            // GL_DYNAMIC_DRAW is a hint that the data will be modified frequently.
+            // Initialize with null data; we'll map it to write.
+            gl::BufferData(
+                gl::ARRAY_BUFFER,      // target
+                buffer_size_bytes,     // size in bytes
+                ptr::null(),           // initial data (none)
+                gl::DYNAMIC_DRAW,      // usage hint
+            );
 
-            // TODO: broken on mac
-            gl::BufferStorage(gl::ARRAY_BUFFER, buffer_size, ptr::null(), access);
+            // Map the buffer.
+            // Note: For frequent updates, consider mapping once and unmapping on drop,
+            // or using glBufferSubData if mapping/unmapping per frame is too slow.
+            // gl::MAP_WRITE_BIT is essential for writing.
+            // gl::MAP_INVALIDATE_BUFFER_BIT can be a performance hint if overwriting the whole buffer.
+            let map_access_flags = gl::MAP_WRITE_BIT | gl::MAP_INVALIDATE_BUFFER_BIT;
+            
+            memory = gl::MapBufferRange(
+                gl::ARRAY_BUFFER,    // target
+                0,                   // offset
+                buffer_size_bytes,   // length
+                map_access_flags,    // access flags
+            ) as *mut T;
 
-            memory = gl::MapBufferRange(gl::ARRAY_BUFFER, 0, buffer_size, access) as *mut T;
+            if memory.is_null() {
+                // Check for GL errors if mapping fails
+                let error = gl::GetError();
+                panic!("Failed to map buffer. GL Error: {}", error);
+            }
 
-            let s = slice::from_raw_parts_mut(memory, 64 * 1024);
-
+            // Initialize the mapped memory with default values
+            let s = slice::from_raw_parts_mut(memory, BUFFER_CAPACITY_ELEMENTS);
             for x in s.iter_mut() {
-                *x = Default::default();
+                *x = T::default();
             }
         }
 
@@ -338,9 +402,26 @@ impl<T: Copy + Default> Buffer<T> {
 impl<T> Drop for Buffer<T> {
     fn drop(&mut self) {
         unsafe {
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.object);
-            gl::UnmapBuffer(gl::ARRAY_BUFFER);
-            gl::DeleteBuffers(1, &self.object);
+            if !self.map.is_null() {
+                // Bind the buffer to unmap it. This is important.
+                // If another buffer is bound to GL_ARRAY_BUFFER, glUnmapBuffer would target that one.
+                gl::BindBuffer(gl::ARRAY_BUFFER, self.object);
+                let unmap_status = gl::UnmapBuffer(gl::ARRAY_BUFFER);
+                if unmap_status == gl::FALSE {
+                    // An error occurred during unmapping. This can happen if the data store became corrupted.
+                    // Log this, but proceed to delete the buffer object itself.
+                    // Note: Production code might handle this more gracefully or log to a file.
+                    let error = gl::GetError();
+                    eprintln!("Error unmapping buffer object {}: GL Error {}", self.object, error);
+                }
+                self.map = ptr::null_mut(); // Mark as unmapped
+                 // Unbind after operation
+                gl::BindBuffer(gl::ARRAY_BUFFER, 0);
+            }
+
+            // Delete the buffer object
+            // gl::DeleteBuffers requires a slice of buffer IDs.
+            gl::DeleteBuffers(1, &self.object as *const GLuint);
         }
     }
 }
