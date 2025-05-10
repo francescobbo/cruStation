@@ -9,13 +9,13 @@ edition = "2021"
 cpu = { path = "cpu" }
 logger = { path = "logger" }
 
-bitfield = "0.13.2"
-byteorder = "1.4.3"
-ctrlc = "3.2.1"
+bitfield = "0.19.0"
+byteorder = "1.5.0"
+ctrlc = "3.4.6"
 gl = "0.14.0"
-lazy_static = "1.4.0"
-ringbuffer = "0.8.2"
-rustyline = "9.0.0"
+lazy_static = "1.5.0"
+ringbuffer = "0.15.0"
+rustyline = "15.0.0"
 sdl2 = "0.37.0"
 
 [profile.dev]

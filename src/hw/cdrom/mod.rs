@@ -1,6 +1,6 @@
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
 use bitfield::bitfield;
-use ringbuffer::{AllocRingBuffer, RingBuffer, RingBufferExt, RingBufferRead, RingBufferWrite};
+use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use std::cell::RefCell;
 use std::rc::Weak;
