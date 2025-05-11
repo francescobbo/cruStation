@@ -1,6 +1,6 @@
-use crate::{Cpu, Exception, PsxBus};
+use crate::{Cpu, Exception};
 
-impl<T: PsxBus> Cpu<T> {
+impl Cpu {
     #[inline(always)]
     pub fn ins_sll(&mut self) {
         let value = self.current_instruction.imm5();
@@ -260,17 +260,7 @@ impl<T: PsxBus> Cpu<T> {
 mod tests {
     use super::*;
 
-    struct NullBus {}
-
-    impl PsxBus for NullBus {
-        fn read<const S: u32>(&self, _: u32) -> u32 {
-            0
-        }
-        fn write<const S: u32>(&self, _: u32, _: u32) {}
-        fn update_cycles(&self, _: u64) {}
-    }
-
-    impl<T: PsxBus> Cpu<T> {
+    impl Cpu {
         pub fn trash_registers(&mut self) {
             for i in 1..31 {
                 self.regs[i] = if i % 2 == 0 { 0x1337_c0d3 } else { 0xf00d_beef };
@@ -278,7 +268,7 @@ mod tests {
         }
     }
 
-    fn make_cpu() -> Cpu<NullBus> {
+    fn make_cpu() -> Cpu {
         Cpu::new()
     }
 

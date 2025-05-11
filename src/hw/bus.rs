@@ -19,7 +19,7 @@ pub trait BusDevice {
 }
 
 pub struct Bus {
-    pub cpu: RefCell<Cpu<Bus>>,
+    pub cpu: Cpu,
     pub cpu_tx: mpsc::Sender<CpuCommand>,
 
     pub total_cycles: RefCell<u64>,
@@ -64,8 +64,8 @@ impl PartialOrd for PsxEvent {
 
 impl Bus {
     pub fn new() -> Bus {
-        let cpu = RefCell::new(Cpu::new());
-        let cpu_tx = cpu.borrow().command_tx.clone();
+        let cpu = Cpu::new();
+        let cpu_tx = cpu.command_tx.clone();
 
         Bus {
             total_cycles: RefCell::new(0),
@@ -88,12 +88,34 @@ impl Bus {
         }
     }
 
-    pub fn run(&self) {
-        self.cpu.borrow_mut().run();
+    pub fn run(&mut self) {
+        let mut accessor = BusAccessor {
+            ram: &mut self.ram.borrow_mut(),
+            bios: &mut self.bios.borrow_mut(),
+            dma: &mut self.dma.borrow_mut(),
+            joy_mc: &mut self.joy_mc.borrow_mut(),
+            gpu: &mut self.gpu.borrow_mut(),
+            timers: &mut self.timers.borrow_mut(),
+            cdrom: &mut self.cdrom.borrow_mut(),
+            spu: &mut self.spu.borrow_mut(),
+        };
+
+        self.cpu.run(&mut accessor);
     }
 
-    pub fn run_until(&self, target_pc: u32) {
-        self.cpu.borrow_mut().run_until(target_pc);
+    pub fn run_until(&mut self, target_pc: u32) {
+        let mut accessor = BusAccessor {
+            ram: &mut self.ram.borrow_mut(),
+            bios: &mut self.bios.borrow_mut(),
+            dma: &mut self.dma.borrow_mut(),
+            joy_mc: &mut self.joy_mc.borrow_mut(),
+            gpu: &mut self.gpu.borrow_mut(),
+            timers: &mut self.timers.borrow_mut(),
+            cdrom: &mut self.cdrom.borrow_mut(),
+            spu: &mut self.spu.borrow_mut(),
+        };
+        
+        self.cpu.run_until(&mut accessor, target_pc);
     }
 
     // pub fn run_for(&self, cycles: u64) {
@@ -106,7 +128,6 @@ impl Bus {
     /// Installs weak references of self into the devices to allow
     /// omnidirectional communication
     pub fn link(&self, self_ref: Rc<RefCell<Self>>) {
-        self.cpu.borrow_mut().link(self);
         self.timers.borrow_mut().link(Rc::downgrade(&self_ref));
         self.gpu.borrow_mut().link(Rc::downgrade(&self_ref));
         self.gpu.borrow_mut().load_renderer();
@@ -190,7 +211,7 @@ impl Bus {
                 }
             } else {
                 // The item at the head of the heap isn't ready to be processed
-                // yet. So non of them are.
+                // yet. So none of them are.
                 break;
             }
         }
@@ -247,152 +268,6 @@ impl Bus {
     #[inline(always)]
     fn add_cycles(&self, count: u64) {
         (*self.total_cycles.borrow_mut()) += count;
-    }
-}
-
-impl PsxBus for Bus {
-    fn update_cycles(&self, cycles: u64) {
-        let mut total = self.total_cycles.borrow_mut();
-        (*total) += cycles;
-
-        drop(total);
-        self.process_events();
-    }
-
-    fn read<const S: u32>(&self, addr: u32) -> u32 {
-        let addr = Bus::strip_region(addr);
-
-        match addr {
-            0x0000_0000..=0x001f_ffff => {
-                self.add_cycles(4);
-                self.ram.borrow_mut().read::<S>(addr)
-            }
-            0x1f00_0000..=0x1f7f_ffff => {
-                self.add_cycles(6 * S as u64);
-                0xffffffff
-            }
-            0x1f80_1040..=0x1f80_104f => {
-                self.add_cycles(2);
-                self.joy_mc.borrow_mut().read::<S>(addr - 0x1f80_1040)
-            }
-            0x1f80_1050..=0x1f80_105f => {
-                // SIO
-                self.add_cycles(2);
-                0
-            }
-            0x1f80_1060 => {
-                // RAM SIZE
-                self.add_cycles(2);
-                0
-            }
-            0x1f80_1080..=0x1f80_10f4 => {
-                self.add_cycles(2);
-                self.dma.borrow_mut().read::<S>(addr - 0x1f80_1080)
-            }
-            0x1f80_1100..=0x1f80_112f => {
-                self.add_cycles(2);
-                self.timers.borrow_mut().read::<S>(addr - 0x1f80_1100)
-            }
-            0x1f80_1800..=0x1f80_1803 => {
-                self.add_cycles(6 * S as u64 + 1);
-                self.cdrom.borrow_mut().read::<S>(addr - 0x1f80_1800)
-            }
-            0x1f80_1810..=0x1f80_1814 => {
-                self.add_cycles(2);
-                self.gpu.borrow_mut().read::<S>(addr - 0x1f80_1810)
-            }
-            0x1f80_1820..=0x1f80_1824 => {
-                // MDEC
-                self.add_cycles(2);
-                0
-            }
-            0x1f80_1c00..=0x1f80_1fff => {
-                self.add_cycles(17);
-                self.spu.borrow_mut().read::<S>(addr - 0x1f80_1c00)
-            }
-            0x1f80_2000..=0x1f80_2080 => {
-                // EXP2 has some weeeeeird timings
-                // 10 cycles for 1 byte
-                // 25 for 2 bytes
-                // 55 for 4 bytes
-                self.add_cycles((15 * S - 5) as u64);
-                0xffffffff
-            }
-            0x1fa0_0000 => {
-                // EXP3 is not sane either
-                // 5 cycles for 1/2 bytes
-                // 9 cycles for 4 bytes
-                if S == 4 {
-                    self.add_cycles(9);
-                } else {
-                    self.add_cycles(5);
-                }
-
-                0xffffffff
-            }
-            0x1fc0_0000..=0x1fc8_0000 => {
-                (*self.total_cycles.borrow_mut()) += 6 * S as u64;
-                self.bios.borrow_mut().read::<S>(addr & 0xf_ffff)
-            }
-            _ => {
-                panic!("Read in memory hole at {:08x}", addr);
-            }
-        }
-    }
-
-    fn write<const S: u32>(&self, addr: u32, value: u32) {
-        match addr {
-            0x0000_0000..=0x0020_0000 => {
-                self.ram.borrow_mut().write::<S>(addr, value);
-            }
-            0x1f80_1040..=0x1f80_104f => {
-                self.joy_mc
-                    .borrow_mut()
-                    .write::<S>(addr - 0x1f80_1040, value);
-            }
-            0x1f80_1050..=0x1f80_105f => {
-                // SIO: TODO
-            }
-            0x1f80_1080..=0x1f80_10f4 => {
-                self.dma.borrow_mut().write::<S>(addr - 0x1f80_1080, value);
-                self.handle_dma_write();
-            }
-            0x1f80_1100..=0x1f80_112f => {
-                self.timers
-                    .borrow_mut()
-                    .write::<S>(addr - 0x1f80_1100, value);
-            }
-            0x1f80_1800..=0x1f80_1803 => {
-                self.cdrom
-                    .borrow_mut()
-                    .write::<S>(addr - 0x1f80_1800, value);
-            }
-            0x1f80_1810..=0x1f80_1814 => {
-                self.gpu.borrow_mut().write::<S>(addr - 0x1f80_1810, value);
-            }
-            0x1f80_1820..=0x1f80_1824 => {
-                // MDEC: TODO
-            }
-            0x1f80_1c00..=0x1f80_1fff => {
-                self.spu.borrow_mut().write::<S>(addr - 0x1f80_1c00, value);
-            }
-            0x1f80_2000..=0x1f80_207f => {
-                // EXP2: ignore
-                // However at 2041, there's the POST 7seg display
-            }
-            0x1f80_1000..=0x1f80_1020 | 0x1f80_1060 => {
-                self.write_io::<S>(addr & 0xffff, value);
-            }
-            0x1fa0_0000 => {
-                // EXP3: ignore
-            }
-            0x1fc0_0000..=0x1fc8_0000 => {
-                // Ignore writes to the ROM
-            }
-            _ => {
-                panic!("Cannot write value {:x} at {:x}", value, addr);
-            }
-        }
     }
 }
 
@@ -517,7 +392,7 @@ impl Bus {
         }
     }
 
-    pub fn load_exe(&self, path: &str) {
+    pub fn load_exe(&mut self, path: &str) {
         use std::io::BufReader;
         use std::io::Read;
         use std::io::Seek;
@@ -549,13 +424,12 @@ impl Bus {
             addr = (addr + 1) & 0x3f_ffff;
         }
 
-        let mut cpu = self.cpu.borrow_mut();
-        cpu.pc = header.pc;
-        cpu.regs[28] = header.r28;
-        cpu.regs[29] = header.r29_base + header.r29_offset;
+        self.cpu.pc = header.pc;
+        self.cpu.regs[28] = header.r28;
+        self.cpu.regs[29] = header.r29_base + header.r29_offset;
 
-        if cpu.regs[29] == 0 {
-            cpu.regs[29] = 0x801f_fff0;
+        if self.cpu.regs[29] == 0 {
+            self.cpu.regs[29] = 0x801f_fff0;
         }
     }
 }
@@ -574,4 +448,137 @@ pub struct PsxExeHeader {
     memfill_size: u32,
     r29_base: u32,
     r29_offset: u32,
+}
+
+struct BusAccessor<'a> {
+    ram: &'a mut Ram,
+    bios: &'a mut Bios,
+    dma: &'a mut Dma,
+    joy_mc: &'a mut JoypadMemorycard,
+    gpu: &'a mut Gpu,
+    timers: &'a mut Timers,
+    cdrom: &'a mut Cdrom,
+    spu: &'a mut Spu,
+}
+
+impl<'a> PsxBus for BusAccessor<'a> {
+    fn update_cycles(&self, cycles: u64) {
+    }
+
+    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+        let addr = Bus::strip_region(addr);
+
+        match addr {
+            0x0000_0000..=0x001f_ffff => {
+                self.ram.read::<S>(addr)
+            }
+            0x1f00_0000..=0x1f7f_ffff => {
+                0xffffffff
+            }
+            0x1f80_1040..=0x1f80_104f => {
+                self.joy_mc.read::<S>(addr - 0x1f80_1040)
+            }
+            0x1f80_1050..=0x1f80_105f => {
+                // SIO
+                0
+            }
+            0x1f80_1060 => {
+                // RAM SIZE
+                0
+            }
+            0x1f80_1080..=0x1f80_10f4 => {
+                self.dma.read::<S>(addr - 0x1f80_1080)
+            }
+            0x1f80_1100..=0x1f80_112f => {
+                self.timers.read::<S>(addr - 0x1f80_1100)
+            }
+            0x1f80_1800..=0x1f80_1803 => {
+                self.cdrom.read::<S>(addr - 0x1f80_1800)
+            }
+            0x1f80_1810..=0x1f80_1814 => {
+                self.gpu.read::<S>(addr - 0x1f80_1810)
+            }
+            0x1f80_1820..=0x1f80_1824 => {
+                // MDEC
+                0
+            }
+            0x1f80_1c00..=0x1f80_1fff => {
+                self.spu.read::<S>(addr - 0x1f80_1c00)
+            }
+            0x1f80_2000..=0x1f80_2080 => {
+                // EXP2 has some weeeeeird timings
+                // 10 cycles for 1 byte
+                // 25 for 2 bytes
+                // 55 for 4 bytes
+                0xffffffff
+            }
+            0x1fa0_0000 => {
+                // EXP3 is not sane either
+                // 5 cycles for 1/2 bytes
+                // 9 cycles for 4 bytes
+                if S == 4 {
+                } else {
+                }
+
+                0xffffffff
+            }
+            0x1fc0_0000..=0x1fc8_0000 => {
+                self.bios.read::<S>(addr & 0xf_ffff)
+            }
+            _ => {
+                panic!("Read in memory hole at {:08x}", addr);
+            }
+        }
+    }
+
+    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+        match addr {
+            0x0000_0000..=0x0020_0000 => {
+                self.ram.write::<S>(addr, value);
+            }
+            0x1f80_1040..=0x1f80_104f => {
+                self.joy_mc
+                    .write::<S>(addr - 0x1f80_1040, value);
+            }
+            0x1f80_1050..=0x1f80_105f => {
+                // SIO: TODO
+            }
+            0x1f80_1080..=0x1f80_10f4 => {
+                self.dma.write::<S>(addr - 0x1f80_1080, value);
+                // self.handle_dma_write();
+            }
+            0x1f80_1100..=0x1f80_112f => {
+                self.timers.write::<S>(addr - 0x1f80_1100, value);
+            }
+            0x1f80_1800..=0x1f80_1803 => {
+                self.cdrom
+                    .write::<S>(addr - 0x1f80_1800, value);
+            }
+            0x1f80_1810..=0x1f80_1814 => {
+                self.gpu.write::<S>(addr - 0x1f80_1810, value);
+            }
+            0x1f80_1820..=0x1f80_1824 => {
+                // MDEC: TODO
+            }
+            0x1f80_1c00..=0x1f80_1fff => {
+                self.spu.write::<S>(addr - 0x1f80_1c00, value);
+            }
+            0x1f80_2000..=0x1f80_207f => {
+                // EXP2: ignore
+                // However at 2041, there's the POST 7seg display
+            }
+            0x1f80_1000..=0x1f80_1020 | 0x1f80_1060 => {
+                // self.write_io::<S>(addr & 0xffff, value);
+            }
+            0x1fa0_0000 => {
+                // EXP3: ignore
+            }
+            0x1fc0_0000..=0x1fc8_0000 => {
+                // Ignore writes to the ROM
+            }
+            _ => {
+                panic!("Cannot write value {:x} at {:x}", value, addr);
+            }
+        }
+    }
 }

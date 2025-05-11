@@ -2,7 +2,7 @@ use crate::{Cpu, Exception, PsxBus};
 
 use crustationlogger::*;
 
-impl<T: PsxBus> Cpu<T> {
+impl Cpu {
     pub fn interrupt(&mut self) {
         debug!(self.logger, "Interrupt fired at {:08x}", self.pc);
 
@@ -187,25 +187,25 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
-    pub fn ins_lwc2(&mut self) {
+    pub fn ins_lwc2<B: PsxBus>(&mut self, bus: &mut B) {
         if !self.cop0.cop2_enabled {
             self.coprocessor_exception(2);
         }
 
         let address = self.ls_address();
-        let value = self.load::<4>(address);
+        let value = self.load::<4, B>(bus, address);
 
         self.gte.write_reg(self.current_instruction.rt(), value);
     }
 
-    pub fn ins_swc2(&mut self) {
+    pub fn ins_swc2<B: PsxBus>(&mut self, bus: &mut B) {
         if !self.cop0.cop2_enabled {
             self.coprocessor_exception(2);
         }
 
         let address = self.ls_address();
         let value = self.gte.read_reg(self.current_instruction.rt());
-        self.store::<4>(address, value);
+        self.store::<4, B>(bus, address, value);
     }
 
     pub fn ins_cop3(&mut self) {

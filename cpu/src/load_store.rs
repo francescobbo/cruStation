@@ -1,6 +1,6 @@
 use crate::{Cpu, Exception, LoadDelaySlot, PsxBus};
 
-impl<B: PsxBus> Cpu<B> {
+impl Cpu {
     #[inline(always)]
     pub fn ls_address(&self) -> u32 {
         let imm = self.current_instruction.simm16() as u32;
@@ -8,25 +8,25 @@ impl<B: PsxBus> Cpu<B> {
     }
 
     #[inline(always)]
-    pub fn ins_lb(&mut self) {
-        let value = self.load::<1>(self.ls_address()) as i8 as u32;
+    pub fn ins_lb<B: PsxBus>(&mut self, bus: &mut B) {
+        let value = self.load::<1, B>(bus, self.ls_address()) as i8 as u32;
 
         self.delayed_load(self.current_instruction.rt(), value);
     }
 
     #[inline(always)]
-    pub fn ins_lh(&mut self) {
+    pub fn ins_lh<B: PsxBus>(&mut self, bus: &mut B) {
         let address = self.ls_address();
 
         if address % 2 == 0 {
-            let value = self.load::<2>(address) as i16 as u32;
+            let value = self.load::<2, B>(bus, address) as i16 as u32;
             self.delayed_load(self.current_instruction.rt(), value);
         } else {
             self.exception(Exception::AddressErrorLoad);
         }
     }
 
-    pub fn ins_lwl(&mut self) {
+    pub fn ins_lwl<B: PsxBus>(&mut self, bus: &mut B) {
         let addr = self.ls_address();
         let cur_v = if self.load_delay_slot[0].register == self.current_instruction.rt() {
             self.load_delay_slot[0].value
@@ -34,7 +34,7 @@ impl<B: PsxBus> Cpu<B> {
             self.r_rt()
         };
 
-        let aligned_word = self.load::<4>(addr & !3);
+        let aligned_word = self.load::<4, B>(bus, addr & !3);
         let v = match addr & 3 {
             0 => (cur_v & 0x00ffffff) | (aligned_word << 24),
             1 => (cur_v & 0x0000ffff) | (aligned_word << 16),
@@ -47,10 +47,10 @@ impl<B: PsxBus> Cpu<B> {
     }
 
     #[inline(always)]
-    pub fn ins_lw(&mut self) {
+    pub fn ins_lw<B: PsxBus>(&mut self, bus: &mut B) {
         let address = self.ls_address();
         if address % 4 == 0 {
-            let value = self.load::<4>(address);
+            let value = self.load::<4, B>(bus, address);
             self.delayed_load(self.current_instruction.rt(), value);
         } else {
             self.exception(Exception::AddressErrorLoad);
@@ -58,25 +58,25 @@ impl<B: PsxBus> Cpu<B> {
     }
 
     #[inline(always)]
-    pub fn ins_lbu(&mut self) {
+    pub fn ins_lbu<B: PsxBus>(&mut self, bus: &mut B) {
         let address = self.ls_address();
-        let value = self.load::<1>(address) as u32;
+        let value = self.load::<1, B>(bus, address) as u32;
 
         self.delayed_load(self.current_instruction.rt(), value);
     }
 
     #[inline(always)]
-    pub fn ins_lhu(&mut self) {
+    pub fn ins_lhu<B: PsxBus>(&mut self, bus: &mut B) {
         let address = self.ls_address();
         if address % 2 == 0 {
-            let value = self.load::<2>(address) as u32;
+            let value = self.load::<2, B>(bus, address) as u32;
             self.delayed_load(self.current_instruction.rt(), value);
         } else {
             self.exception(Exception::AddressErrorLoad);
         }
     }
 
-    pub fn ins_lwr(&mut self) {
+    pub fn ins_lwr<B: PsxBus>(&mut self, bus: &mut B) {
         let addr = self.ls_address();
         let cur_v = if self.load_delay_slot[0].register == self.current_instruction.rt() {
             self.load_delay_slot[0].value
@@ -84,7 +84,7 @@ impl<B: PsxBus> Cpu<B> {
             self.r_rt()
         };
 
-        let aligned_word = self.load::<4>(addr & !3);
+        let aligned_word = self.load::<4, B>(bus, addr & !3);
         let v = match addr & 3 {
             0 => aligned_word,
             1 => (cur_v & 0xff000000) | (aligned_word >> 8),
@@ -97,25 +97,25 @@ impl<B: PsxBus> Cpu<B> {
     }
 
     #[inline(always)]
-    pub fn ins_sb(&mut self) {
-        self.store::<1>(self.ls_address(), self.r_rt() & 0xff);
+    pub fn ins_sb<B: PsxBus>(&mut self, bus: &mut B) {
+        self.store::<1, B>(bus, self.ls_address(), self.r_rt() & 0xff);
     }
 
     #[inline(always)]
-    pub fn ins_sh(&mut self) {
+    pub fn ins_sh<B: PsxBus>(&mut self, bus: &mut B) {
         let address = self.ls_address();
         if address % 2 == 0 {
-            self.store::<2>(address, self.r_rt() & 0xffff);
+            self.store::<2, B>(bus, address, self.r_rt() & 0xffff);
         } else {
             self.exception(Exception::AddressErrorStore);
         }
     }
 
-    pub fn ins_swl(&mut self) {
+    pub fn ins_swl<B: PsxBus>(&mut self, bus: &mut B) {
         let addr = self.ls_address();
         let v = self.r_rt();
         let aligned_addr = addr & !3;
-        let cur_v = self.load::<4>(aligned_addr);
+        let cur_v = self.load::<4, B>(bus, aligned_addr);
 
         let v = match addr & 3 {
             0 => (cur_v & 0xffffff00) | (v >> 24),
@@ -125,25 +125,25 @@ impl<B: PsxBus> Cpu<B> {
             _ => unreachable!(),
         };
 
-        self.store::<4>(aligned_addr, v);
+        self.store::<4, B>(bus, aligned_addr, v);
     }
 
     #[inline(always)]
-    pub fn ins_sw(&mut self) {
+    pub fn ins_sw<B: PsxBus>(&mut self, bus: &mut B) {
         let address = self.ls_address();
 
         if address % 4 == 0 {
-            self.store::<4>(address, self.r_rt());
+            self.store::<4, B>(bus, address, self.r_rt());
         } else {
             self.exception(Exception::AddressErrorStore);
         }
     }
 
-    pub fn ins_swr(&mut self) {
+    pub fn ins_swr<B: PsxBus>(&mut self, bus: &mut B) {
         let addr = self.ls_address();
         let v = self.r_rt();
         let aligned_addr = addr & !3;
-        let cur_v = self.load::<4>(aligned_addr);
+        let cur_v = self.load::<4, B>(bus, aligned_addr);
 
         let v = match addr & 3 {
             0 => v,
@@ -153,7 +153,7 @@ impl<B: PsxBus> Cpu<B> {
             _ => unreachable!(),
         };
 
-        self.store::<4>(aligned_addr, v)
+        self.store::<4, B>(bus, aligned_addr, v)
     }
 
     #[inline(always)]
@@ -172,7 +172,7 @@ impl<B: PsxBus> Cpu<B> {
         };
     }
 
-    pub fn load<const T: u32>(&self, address: u32) -> u32 {
+    pub fn load<const T: u32, B: PsxBus>(&self, bus: &mut B, address: u32) -> u32 {
         if self.cop0.isolate_cache {
             // TODO: not sure what to do here.
         }
@@ -180,9 +180,7 @@ impl<B: PsxBus> Cpu<B> {
         match address {
             0xfffe_0130 => {
                 if T != 1 {
-                    unsafe {
-                        (*self.bus).update_cycles(1);
-                    }
+                    bus.update_cycles(1);
                 }
                 self.biu_cc.0
             }
@@ -199,24 +197,20 @@ impl<B: PsxBus> Cpu<B> {
                 match address {
                     0x1f80_0000..=0x1f80_03ff => self.dcache.read::<T>(address & 0x3ff),
                     0x1f80_1070 => {
-                        unsafe {
-                            (*self.bus).update_cycles(2);
-                        }
+                        bus.update_cycles(2);
                         self.i_stat
                     }
                     0x1f80_1074 => {
-                        unsafe {
-                            (*self.bus).update_cycles(2);
-                        }
+                        bus.update_cycles(2);
                         self.i_mask
                     }
-                    _ => unsafe { (*self.bus).read::<T>(address) },
+                    _ => bus.read::<T>(address),
                 }
             }
         }
     }
 
-    pub fn store<const T: u32>(&mut self, address: u32, value: u32) {
+    pub fn store<const T: u32, B: PsxBus>(&mut self, bus: &mut B, address: u32, value: u32) {
         if self.cop0.isolate_cache {
             return;
         }
@@ -254,9 +248,7 @@ impl<B: PsxBus> Cpu<B> {
                         self.i_mask = value & !0xf800;
                         self.check_interrupts();
                     }
-                    _ => unsafe {
-                        (*self.bus).write::<T>(address, value);
-                    },
+                    _ => bus.write::<T>(address, value)
                 }
             }
         }

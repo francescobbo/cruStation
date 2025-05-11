@@ -22,8 +22,8 @@ use instruction::Instruction;
 use scratchpad::Scratchpad;
 
 pub trait PsxBus {
-    fn read<const T: u32>(&self, address: u32) -> u32;
-    fn write<const T: u32>(&self, address: u32, value: u32);
+    fn read<const T: u32>(&mut self, address: u32) -> u32;
+    fn write<const T: u32>(&mut self, address: u32, value: u32);
     fn update_cycles(&self, cycles: u64);
 }
 
@@ -38,10 +38,8 @@ struct LoadDelaySlot {
     value: u32,
 }
 
-pub struct Cpu<T: PsxBus> {
+pub struct Cpu {
     logger: Logger,
-
-    pub bus: *const T,
 
     command_rx: mpsc::Receiver<CpuCommand>,
     pub command_tx: mpsc::Sender<CpuCommand>,
@@ -67,13 +65,12 @@ pub struct Cpu<T: PsxBus> {
     in_delay: bool,
 }
 
-impl<T: PsxBus> Cpu<T> {
-    pub fn new() -> Cpu<T> {
+impl Cpu {
+    pub fn new() -> Cpu {
         let (tx, rx) = mpsc::channel();
 
         Cpu {
             logger: Logger::new("CPU", Level::Info),
-            bus: std::ptr::null(),
 
             command_rx: rx,
             command_tx: tx,
@@ -114,19 +111,15 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
-    pub fn link(&mut self, bus: &T) {
-        self.bus = bus as *const T;
-    }
-
     #[inline(always)]
-    pub fn fetch_at_pc(&mut self) -> u32 {
+    pub fn fetch_at_pc<B: PsxBus>(&mut self, bus: &mut B) -> u32 {
         // Uncomment for hardware-faithful implementation
         // if !self.biu_cc.is1() {
         //     return self.load::<u32>(self.pc);
         // }
 
         if self.pc >= 0xa000_0000 {
-            return self.load::<4>(self.pc);
+            return self.load::<4, B>(bus, self.pc);
         }
 
         match self.icache.load(self.pc) {
@@ -134,7 +127,7 @@ impl<T: PsxBus> Cpu<T> {
             None => {
                 // Fetch and store the current instruction
                 let ins: u32;
-                ins = self.load::<4>(self.pc);
+                ins = self.load::<4, B>(bus, self.pc);
                 self.icache.store(self.pc, ins);
 
                 // Fetch up to 4 words (from current PC up to next 16-byte
@@ -142,7 +135,7 @@ impl<T: PsxBus> Cpu<T> {
                 // ever be used).
                 let mut next = self.pc.wrapping_add(4);
                 while next & 0xf != 0 {
-                    let ins = self.load::<4>(next);
+                    let ins = self.load::<4, B>(bus, next);
                     self.icache.store(next, ins);
 
                     next = next.wrapping_add(4);
@@ -153,15 +146,15 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn run<B: PsxBus>(&mut self, bus: &mut B) {
         loop {
-            self.cycle();
+            self.cycle(bus);
         }
     }
 
-    pub fn run_until(&mut self, desired_pc: u32) {
+    pub fn run_until<B: PsxBus>(&mut self, bus: &mut B, desired_pc: u32) {
         loop {
-            self.cycle();
+            self.cycle(bus);
 
             if self.pc == desired_pc {
                 break;
@@ -169,11 +162,11 @@ impl<T: PsxBus> Cpu<T> {
         }
     }
 
-    pub fn cycle(&mut self) {
+    pub fn cycle<B: PsxBus>(&mut self, bus: &mut B) {
         if let Ok(command) = self.command_rx.try_recv() {
             match command {
                 CpuCommand::Break => {
-                    // println!();
+                    println!();
                     // debug::Debugger::enter(self);
                 }
                 CpuCommand::Irq(n) => {
@@ -182,26 +175,13 @@ impl<T: PsxBus> Cpu<T> {
             }
         }
 
-        // if debug::Debugger::should_break(self) {
-        //     debug::Debugger::enter(self);
-        // }
-
-        self.step();
-
-        // match self.pc() {
-        //     0xa0 => Bios::call_a(self),
-        //     0xb0 => Bios::call_b(self),
-        //     0xc0 => Bios::call_c(self),
-        //     _ => {}
-        // }
+        self.step(bus);
 
         if self.cop0.should_interrupt() {
             self.interrupt();
         }
 
-        unsafe {
-            (*self.bus).update_cycles(1);
-        }
+        bus.update_cycles(1);
     }
 
     #[inline(always)]
@@ -214,7 +194,7 @@ impl<T: PsxBus> Cpu<T> {
     }
 
     #[inline(always)]
-    pub fn step(&mut self) {
+    pub fn step<B: PsxBus>(&mut self, bus: &mut B) {
         if let Some((_pc, ins)) = self.branch_delay_slot {
             self.in_delay = true;
             self.current_instruction.0 = ins;
@@ -227,7 +207,7 @@ impl<T: PsxBus> Cpu<T> {
                 return;
             }
 
-            self.current_instruction.0 = self.fetch_at_pc();
+            self.current_instruction.0 = self.fetch_at_pc(bus);
             self.pc = self.pc.wrapping_add(4);
         }
 
@@ -239,8 +219,8 @@ impl<T: PsxBus> Cpu<T> {
                 0x04 => self.ins_sllv(),
                 0x06 => self.ins_srlv(),
                 0x07 => self.ins_srav(),
-                0x08 => self.ins_jr(),
-                0x09 => self.ins_jalr(),
+                0x08 => self.ins_jr(bus),
+                0x09 => self.ins_jalr(bus),
                 0x0C => self.ins_syscall(),
                 0x0D => self.ins_break(),
                 0x10 => self.ins_mfhi(),
@@ -271,13 +251,13 @@ impl<T: PsxBus> Cpu<T> {
                     self.exception(Exception::ReservedInstruction);
                 }
             },
-            0x01 => self.ins_bcondz(),
-            0x02 => self.ins_j(),
-            0x03 => self.ins_jal(),
-            0x04 => self.ins_beq(),
-            0x05 => self.ins_bne(),
-            0x06 => self.ins_blez(),
-            0x07 => self.ins_bgtz(),
+            0x01 => self.ins_bcondz(bus),
+            0x02 => self.ins_j(bus),
+            0x03 => self.ins_jal(bus),
+            0x04 => self.ins_beq(bus),
+            0x05 => self.ins_bne(bus),
+            0x06 => self.ins_blez(bus),
+            0x07 => self.ins_bgtz(bus),
             0x08 => self.ins_addi(),
             0x09 => self.ins_addiu(),
             0x0A => self.ins_slti(),
@@ -290,25 +270,25 @@ impl<T: PsxBus> Cpu<T> {
             0x11 => self.ins_cop1(),
             0x12 => self.ins_cop2(),
             0x13 => self.ins_cop3(),
-            0x20 => self.ins_lb(),
-            0x21 => self.ins_lh(),
-            0x22 => self.ins_lwl(),
-            0x23 => self.ins_lw(),
-            0x24 => self.ins_lbu(),
-            0x25 => self.ins_lhu(),
-            0x26 => self.ins_lwr(),
-            0x28 => self.ins_sb(),
-            0x29 => self.ins_sh(),
-            0x2A => self.ins_swl(),
-            0x2B => self.ins_sw(),
-            0x2E => self.ins_swr(),
+            0x20 => self.ins_lb(bus),
+            0x21 => self.ins_lh(bus),
+            0x22 => self.ins_lwl(bus),
+            0x23 => self.ins_lw(bus),
+            0x24 => self.ins_lbu(bus),
+            0x25 => self.ins_lhu(bus),
+            0x26 => self.ins_lwr(bus),
+            0x28 => self.ins_sb(bus),
+            0x29 => self.ins_sh(bus),
+            0x2A => self.ins_swl(bus),
+            0x2B => self.ins_sw(bus),
+            0x2E => self.ins_swr(bus),
             0x30 => self.ins_lwc0(),
             0x31 => self.ins_lwc1(),
-            0x32 => self.ins_lwc2(),
+            0x32 => self.ins_lwc2(bus),
             0x33 => self.ins_lwc3(),
             0x38 => self.ins_swc0(),
             0x39 => self.ins_swc1(),
-            0x3A => self.ins_swc2(),
+            0x3A => self.ins_swc2(bus),
             0x3B => self.ins_swc3(),
             _ => {
                 warn!(

@@ -4,12 +4,7 @@ extern crate test;
 
 use crustationcpu::gte::Gte;
 
-use std::mem::replace;
 use test::Bencher;
-
-// On my machine this hits 13 million RTPT/s and 10 million NCDT/s
-// My understanding is that the original GTE did 120k triangles/s
-// This should be good enough.
 
 #[bench]
 fn rtpt(b: &mut Bencher) {
@@ -19,12 +14,7 @@ fn rtpt(b: &mut Bencher) {
     }
 
     b.iter(|| {
-        let n = test::black_box(1000);
-
-        (0..n).fold(0, |_, _| {
-            gte.execute(0x00000030);
-            1
-        });
+        gte.execute(0x00000030);
     })
 }
 
@@ -36,12 +26,7 @@ fn mvmva(b: &mut Bencher) {
     }
 
     b.iter(|| {
-        let n = test::black_box(1000);
-
-        (0..n).fold(0, |_, _| {
-            gte.execute(0x00000012);
-            1
-        });
+        gte.execute(0x00000012);
     })
 }
 
@@ -53,11 +38,6 @@ fn ncdt(b: &mut Bencher) {
     }
 
     b.iter(|| {
-        let n = test::black_box(1000);
-
-        (0..n).fold(0, |_, _| {
-            gte.execute(0x00000016);
-            1
-        });
+        gte.execute(0x00000016);
     })
 }
