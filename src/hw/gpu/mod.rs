@@ -6,6 +6,7 @@ use std::rc::Weak;
 
 use bitfield::bitfield;
 use renderer::{Color, Position, Renderer};
+use winit::{event::{ElementState, Event, KeyEvent, WindowEvent}, event_loop::EventLoop, keyboard::{KeyCode, PhysicalKey}, window::WindowBuilder};
 
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
 
@@ -40,8 +41,8 @@ bitfield! {
     pub even_odd, set_even_odd: 31;
 }
 
-pub struct Gpu {
-    renderer: Option<Renderer>,
+pub struct Gpu<'a> {
+    renderer: Option<Renderer<'a>>,
 
     gpustat: GpuStat,
     buffer: Vec<u32>,
@@ -58,13 +59,13 @@ pub struct Gpu {
     /// Drawing offset in the framebuffer
     drawing_offset: (i16, i16),
 
-    bus: Weak<RefCell<Bus>>,
+    bus: Weak<RefCell<Bus<'a>>>,
 
     set: bool,
 }
 
-impl Gpu {
-    pub fn new() -> Gpu {
+impl<'a> Gpu<'a> {
+    pub fn new() -> Gpu<'a> {
         Gpu {
             renderer: None,
 
@@ -84,16 +85,44 @@ impl Gpu {
         }
     }
 
-    pub fn link(&mut self, bus: Weak<RefCell<Bus>>) {
+    pub fn link(&mut self, bus: Weak<RefCell<Bus<'a>>>) {
         self.bus = bus;
     }
 
     pub fn load_renderer(&mut self) {
-        self.renderer = Some(Renderer::new());
+        env_logger::init();
+        let event_loop = EventLoop::new().unwrap();
+        let window = WindowBuilder::new().build(&event_loop).unwrap();
+    
+        let mut renderer = pollster::block_on(Renderer::new(&window));
+
+        event_loop.run(move |event, control_flow| {
+            match event {
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == renderer.window().id() => match event {
+                    WindowEvent::CloseRequested
+                    | WindowEvent::KeyboardInput {
+                        event:
+                            KeyEvent {
+                                state: ElementState::Pressed,
+                                physical_key: PhysicalKey::Code(KeyCode::Escape),
+                                ..
+                            },
+                        ..
+                    } => control_flow.exit(),
+                    _ => {}
+                },
+                _ => {}
+            }
+        });
+
+        self.renderer = Some(renderer);
     }
 }
 
-impl BusDevice for Gpu {
+impl<'a> BusDevice for Gpu<'a> {
     fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         if !self.set {
             let cpu_freq = 33868800;
@@ -138,7 +167,7 @@ impl BusDevice for Gpu {
     }
 }
 
-impl Gpu {
+impl<'a> Gpu<'a> {
     pub fn vblank(&mut self) {
         if !self.gpustat.vertical_res() {
             // 240 lines
