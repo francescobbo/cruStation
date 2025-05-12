@@ -73,6 +73,11 @@ impl System {
         addr & MASK[(addr >> 30) as usize]
     }
 
+    pub fn cycle(&mut self) {
+        let irq = self.gpu.update(self.total_cycles);
+        self.irq |= irq;
+    }
+
     pub fn process_events(&mut self) {
         let total = self.total_cycles;
 
@@ -129,9 +134,7 @@ impl System {
             PsxEventType::DeliverCDRomResponse => {
                 self.cdrom.next_response();
             }
-            PsxEventType::VBlank => {
-                self.gpu.vblank();
-            }
+            _ => panic!("Unhandled event {:?}", kind),
         }
     }
 
@@ -397,7 +400,7 @@ impl PsxBus for System {
             }
             0x1f80_1080..=0x1f80_10f4 => {
                 self.dma.write::<S>(addr - 0x1f80_1080, value);
-                // self.handle_dma_write();
+                self.handle_dma_write();
             }
             0x1f80_1100..=0x1f80_112f => {
                 self.timers.write::<S>(self.total_cycles, addr - 0x1f80_1100, value);
@@ -432,5 +435,11 @@ impl PsxBus for System {
                 panic!("Cannot write value {:x} at {:x}", value, addr);
             }
         }
+    }
+
+    fn pending_irqs(&mut self) -> u32 {
+        let pending = self.irq;
+        self.irq = 0;
+        pending
     }
 }

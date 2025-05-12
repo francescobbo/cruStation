@@ -28,6 +28,7 @@ pub trait PsxBus {
     fn read<const T: u32>(&mut self, address: u32) -> u32;
     fn write<const T: u32>(&mut self, address: u32, value: u32);
     fn update_cycles(&mut self, cycles: u64);
+    fn pending_irqs(&mut self) -> u32;
 }
 
 pub enum CpuCommand {
@@ -66,7 +67,8 @@ pub struct Cpu {
     load_delay_slot: [LoadDelaySlot; 2],
     in_delay: bool,
 
-    debugger: Debugger
+    debugger: Debugger,
+    call_stack: Vec<u32>,
 }
 
 pub static DEBUG_BREAK_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -116,6 +118,7 @@ impl Cpu {
             //     .as_millis(),
 
             debugger: Debugger::new(),
+            call_stack: Vec::new(),
         }
     }
 
@@ -176,12 +179,9 @@ impl Cpu {
             debug::Debugger::enter(self, bus);
         }
 
-        if let Ok(command) = self.command_rx.try_recv() {
-            match command {
-                CpuCommand::Irq(n) => {
-                    self.request_interrupt(n);
-                }
-            }
+        let pending_irqs = bus.pending_irqs();
+        if pending_irqs != 0 {
+            self.request_interrupts(pending_irqs);
         }
 
         self.step(bus);
@@ -335,8 +335,8 @@ impl Cpu {
         self.load_delay_slot[1].register = 32;
     }
 
-    pub fn request_interrupt(&mut self, irq_number: u32) {
-        self.i_stat |= 1 << irq_number;
+    pub fn request_interrupts(&mut self, irqs: u32) {
+        self.i_stat |= irqs;
         self.check_interrupts();
     }
 

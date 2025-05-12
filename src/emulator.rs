@@ -16,7 +16,12 @@ impl Emulator {
     }
 
     pub fn run(&mut self) {
-        self.cpu.run(&mut self.system);
+        self.system.gpu.load_renderer();
+
+        loop {
+            self.cpu.cycle(&mut self.system);
+            self.system.cycle();
+        }
     }
 
     pub fn run_until(&mut self, target: u32) {

@@ -57,6 +57,9 @@ pub struct Gpu {
     drawing_offset: (i16, i16),
 
     set: bool,
+
+    last_cycles: u64,
+    next_vblank: u64,
 }
 
 impl Gpu {
@@ -75,6 +78,9 @@ impl Gpu {
             drawing_offset: (0, 0),
 
             set: false,
+
+            last_cycles: 0,
+            next_vblank: 0
         }
     }
 
@@ -83,15 +89,13 @@ impl Gpu {
     }
 
     pub fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+        println!("GPU write {:08x} to {:08x}", value, addr);
+
         if !self.set {
             let cpu_freq = 33868800;
             let vblank_freq = 60;
             let vblank_cycles = cpu_freq / vblank_freq;
-            // self.bus
-            //     .upgrade()
-            //     .unwrap()
-            //     .borrow()
-            //     .add_event(PsxEventType::VBlank, 0, vblank_cycles);
+            self.next_vblank = vblank_cycles;
             self.set = true;
         }
 
@@ -146,6 +150,17 @@ impl Gpu {
             renderer.poll_events();
             renderer.draw();
         }
+    }
+
+    pub fn update(&mut self, cycles: u64) -> u32 {
+        if cycles > self.next_vblank {
+            self.vblank();
+            self.next_vblank = cycles + 33868800 / 60;
+
+            return 1 << 0
+        }
+
+        return 0
     }
 
     pub fn process_gp0(&mut self, command: u32) {

@@ -18,12 +18,18 @@ impl Cpu {
 
         self.write_reg(31, self.pc.wrapping_add(4));
         self.pc = target;
+
+        self.call_stack.push(self.pc);
     }
 
     #[inline(always)]
     pub fn ins_jr<B: PsxBus>(&mut self, bus: &mut B) {
         self.branch_delay_slot = Some((self.pc, self.fetch_at_pc(bus)));
         self.pc = self.r_rs();
+
+        if self.current_instruction.rs() == 31 {
+            self.call_stack.pop();
+        }
     }
 
     #[inline(always)]
@@ -35,6 +41,8 @@ impl Cpu {
 
         self.pc = self.r_rs();
         self.write_reg(self.current_instruction.rd(), ret);
+
+        self.call_stack.push(self.pc);
     }
 
     #[inline(always)]

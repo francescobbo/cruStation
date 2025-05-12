@@ -173,6 +173,13 @@ impl Debugger {
 
                 false
             }
+            "call-stack" => {
+                println!("Call stack:");
+                for (i, addr) in cpu.call_stack.iter().enumerate() {
+                    println!("{}: {:08x}", i, addr);
+                }
+                false
+            }
             "h" | "help" => {
                 println!("  h, help                      Shows this message");
                 println!("  c, continue                  Resumes emulation");
@@ -183,6 +190,7 @@ impl Debugger {
                 println!("  b, breakpoint [address]      Sets a breakpoint");
                 println!(" lb, list-breakpoints          Lists all breakpoints");
                 println!(" db, delete-breakpoint [index] Deletes a breakpoints");
+                println!("  call-stack                   Shows the call stack");
                 println!("  q, quit                      Terminates the emulator");
                 false
             }
