@@ -1,5 +1,4 @@
 // use crate::hw::vec::ByteSerialized;
-use crate::hw::bus::{BusDevice};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Direction {
@@ -155,10 +154,8 @@ impl Dma {
         self.dicr &= !(1 << 31);
         self.dicr |= irq_active;
     }
-}
 
-impl BusDevice for Dma {
-    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+    pub fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         if S != 4 {
             // println!("Unhandled {}-bytes DMA read", std::mem::size_of::<T>());
             return 0;
@@ -177,7 +174,7 @@ impl BusDevice for Dma {
         }
     }
 
-    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+    pub fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         // if std::mem::size_of::<T>() != 4 {
         //     panic!("Unhandled {}-bytes DMA write", std::mem::size_of::<T>());
         // }
@@ -269,10 +266,8 @@ impl Channel {
 
         self.channel_control &= !((1 << 24) | (1 << 28));
     }
-}
 
-impl BusDevice for Channel {
-    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+    pub fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         match addr {
             0x00 => self.base,
             0x04 => self.read_block_control(),
@@ -288,7 +283,7 @@ impl BusDevice for Channel {
         }
     }
 
-    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+    pub fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         // println!("[DMA] write {:08x} to {:08x}", value, addr);
         match addr {
             0x00 => self.set_base(value),
@@ -297,9 +292,7 @@ impl BusDevice for Channel {
             _ => unreachable!(),
         };
     }
-}
 
-impl Channel {
     fn read_block_control(&self) -> u32 {
         (self.block_count << 16) | self.block_size
     }

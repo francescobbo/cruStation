@@ -1,14 +1,12 @@
-mod bios;
-pub mod bus;
-mod cdrom;
-pub mod disasm;
-mod dma;
-mod gpu;
-mod joy_mc;
-mod ram;
-mod spu;
-mod timers;
-mod vec;
+pub mod bios;
+pub mod cdrom;
+pub mod dma;
+pub mod gpu;
+pub mod joy_mc;
+pub mod ram;
+pub mod spu;
+pub mod timers;
+pub mod vec;
 
 use crate::hw::bios::Bios;
 use crate::hw::cdrom::Cdrom;

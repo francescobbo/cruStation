@@ -3,19 +3,22 @@ mod biu;
 mod branch;
 mod cop;
 mod cop0;
+mod debug;
+mod disasm;
 pub mod gte;
 mod icache;
 mod instruction;
 mod load_store;
 mod scratchpad;
 
-use std::sync::mpsc;
+use std::sync::{atomic::{AtomicBool, Ordering}, mpsc};
 // use std::time::{SystemTime, UNIX_EPOCH};
 
 use crustationlogger::*;
 
 use biu::BIUCacheControl;
 use cop0::{Cop0, Exception};
+use debug::Debugger;
 use gte::Gte;
 use icache::InstructionCache;
 use instruction::Instruction;
@@ -24,11 +27,10 @@ use scratchpad::Scratchpad;
 pub trait PsxBus {
     fn read<const T: u32>(&mut self, address: u32) -> u32;
     fn write<const T: u32>(&mut self, address: u32, value: u32);
-    fn update_cycles(&self, cycles: u64);
+    fn update_cycles(&mut self, cycles: u64);
 }
 
 pub enum CpuCommand {
-    Break,
     Irq(u32),
 }
 
@@ -63,7 +65,11 @@ pub struct Cpu {
     branch_delay_slot: Option<(u32, u32)>,
     load_delay_slot: [LoadDelaySlot; 2],
     in_delay: bool,
+
+    debugger: Debugger
 }
+
+pub static DEBUG_BREAK_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 impl Cpu {
     pub fn new() -> Cpu {
@@ -108,6 +114,8 @@ impl Cpu {
             //     .duration_since(UNIX_EPOCH)
             //     .unwrap()
             //     .as_millis(),
+
+            debugger: Debugger::new(),
         }
     }
 
@@ -163,12 +171,13 @@ impl Cpu {
     }
 
     pub fn cycle<B: PsxBus>(&mut self, bus: &mut B) {
+        if DEBUG_BREAK_REQUESTED.load(Ordering::SeqCst) || debug::Debugger::should_break(self) {
+            DEBUG_BREAK_REQUESTED.store(false, Ordering::SeqCst);
+            debug::Debugger::enter(self, bus);
+        }
+
         if let Ok(command) = self.command_rx.try_recv() {
             match command {
-                CpuCommand::Break => {
-                    println!();
-                    // debug::Debugger::enter(self);
-                }
                 CpuCommand::Irq(n) => {
                     self.request_interrupt(n);
                 }
@@ -205,6 +214,21 @@ impl Cpu {
             if self.pc % 4 != 0 {
                 self.exception(Exception::AddressErrorLoad);
                 return;
+            }
+
+            match self.pc {
+                0xa0 => {
+                    // println!("BIOS A {:02x}", self.regs[9])
+                }
+                0xb0 => {
+                    if self.regs[9] == 0x3d { // putchar
+                        print!("{}", self.regs[4] as u8 as char);
+                    }
+                }
+                0xc0 => {
+                    // println!("BIOS C {:02x}", self.regs[9])
+                }
+                _ => {}
             }
 
             self.current_instruction.0 = self.fetch_at_pc(bus);

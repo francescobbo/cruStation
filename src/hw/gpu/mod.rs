@@ -7,8 +7,6 @@ use std::rc::Weak;
 use bitfield::bitfield;
 use renderer::{Color, Position, Renderer};
 
-use crate::hw::bus::{Bus, BusDevice, PsxEventType};
-
 bitfield! {
     struct GpuStat(u32);
     impl Debug;
@@ -58,8 +56,6 @@ pub struct Gpu {
     /// Drawing offset in the framebuffer
     drawing_offset: (i16, i16),
 
-    bus: Weak<RefCell<Bus>>,
-
     set: bool,
 }
 
@@ -78,32 +74,24 @@ impl Gpu {
             drawing_area_bottom: 0,
             drawing_offset: (0, 0),
 
-            bus: Weak::new(),
-
             set: false,
         }
-    }
-
-    pub fn link(&mut self, bus: Weak<RefCell<Bus>>) {
-        self.bus = bus;
     }
 
     pub fn load_renderer(&mut self) {
         self.renderer = Some(Renderer::new());
     }
-}
 
-impl BusDevice for Gpu {
-    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+    pub fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         if !self.set {
             let cpu_freq = 33868800;
             let vblank_freq = 60;
             let vblank_cycles = cpu_freq / vblank_freq;
-            self.bus
-                .upgrade()
-                .unwrap()
-                .borrow()
-                .add_event(PsxEventType::VBlank, 0, vblank_cycles);
+            // self.bus
+            //     .upgrade()
+            //     .unwrap()
+            //     .borrow()
+            //     .add_event(PsxEventType::VBlank, 0, vblank_cycles);
             self.set = true;
         }
 
@@ -118,7 +106,7 @@ impl BusDevice for Gpu {
         }
     }
 
-    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+    pub fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         if S != 4 {
             // println!("Unhandled {}-bytes GPU read", std::mem::size_of::<T>());
             return 0;
@@ -151,7 +139,7 @@ impl Gpu {
 
         // println!("VSync");
         self.gpustat.set_irq(true);
-        self.bus.upgrade().unwrap().borrow().send_irq(0);
+        // self.bus.send_irq(0);
 
         println!("VSync IRQ");
         if let Some(renderer) = &mut self.renderer {

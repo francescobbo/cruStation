@@ -1,41 +1,8 @@
-use crate::hw::vec::ByteSerialized;
+use std::{cmp::Ordering, collections::BinaryHeap};
 
-use std::fs::File;
-use std::sync::mpsc;
+use crustationcpu::PsxBus;
 
-use crustationcpu::{Cpu, CpuCommand, PsxBus};
-use crate::hw::dma::{ChannelLink, Direction, SyncMode};
-use crate::hw::{Bios, Cdrom, Dma, Gpu, JoypadMemorycard, Ram, Spu, Timers};
-
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
-
-pub trait BusDevice {
-    fn read<const S: u32>(&mut self, addr: u32) -> u32;
-    fn write<const S: u32>(&mut self, addr: u32, value: u32);
-}
-
-pub struct Bus {
-    pub cpu: Cpu,
-    pub cpu_tx: mpsc::Sender<CpuCommand>,
-
-    pub total_cycles: RefCell<u64>,
-
-    ram: RefCell<Ram>,
-    bios: RefCell<Bios>,
-    io: RefCell<Vec<u8>>,
-    cdrom: RefCell<Cdrom>,
-    dma: RefCell<Dma>,
-    spu: RefCell<Spu>,
-    gpu: RefCell<Gpu>,
-    timers: RefCell<Timers>,
-    joy_mc: RefCell<JoypadMemorycard>,
-
-    events: RefCell<BinaryHeap<PsxEvent>>,
-}
+use crate::hw::{bios::Bios, cdrom::Cdrom, dma::{ChannelLink, Direction, Dma, SyncMode}, gpu::Gpu, joy_mc::JoypadMemorycard, ram::Ram, spu::Spu, timers::Timers};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum PsxEventType {
@@ -62,85 +29,122 @@ impl PartialOrd for PsxEvent {
     }
 }
 
-impl Bus {
-    pub fn new() -> Bus {
-        let cpu = Cpu::new();
-        let cpu_tx = cpu.command_tx.clone();
+pub struct System {
+    pub total_cycles: u64,
 
-        Bus {
-            total_cycles: RefCell::new(0),
+    pub ram: Ram,
+    pub bios: Bios,
+    pub io: Vec<u8>,
+    pub cdrom: Cdrom,
+    pub dma: Dma,
+    pub spu: Spu,
+    pub gpu: Gpu,
+    pub timers: Timers,
+    pub joy_mc: JoypadMemorycard,
 
-            ram: RefCell::new(Ram::new()),
-            bios: RefCell::new(Bios::new()),
-            io: RefCell::new(vec![0; 0x1000 + 8 * 1024]),
+    events: BinaryHeap<PsxEvent>,
 
-            cdrom: RefCell::new(Cdrom::new()),
-            dma: RefCell::new(Dma::new()),
-            spu: RefCell::new(Spu::new()),
-            gpu: RefCell::new(Gpu::new()),
-            timers: RefCell::new(Timers::new()),
-            joy_mc: RefCell::new(JoypadMemorycard::new()),
+    pub irq: u32,
+}
 
-            cpu,
-            cpu_tx,
+impl System {
+    pub fn new() -> System {
+        System {
+            total_cycles: 0,
+            irq: 0,
 
-            events: RefCell::new(BinaryHeap::new()),
+            ram: Ram::new(),
+            bios: Bios::new(),
+            io: vec![0; 0x10000],
+            cdrom: Cdrom::new(),
+            dma: Dma::new(),
+            spu: Spu::new(),
+            gpu: Gpu::new(),
+            timers: Timers::new(),
+            joy_mc: JoypadMemorycard::new(),
+
+            events: BinaryHeap::new(),
         }
     }
 
-    pub fn run(&mut self) {
-        let mut accessor = BusAccessor {
-            ram: &mut self.ram.borrow_mut(),
-            bios: &mut self.bios.borrow_mut(),
-            dma: &mut self.dma.borrow_mut(),
-            joy_mc: &mut self.joy_mc.borrow_mut(),
-            gpu: &mut self.gpu.borrow_mut(),
-            timers: &mut self.timers.borrow_mut(),
-            cdrom: &mut self.cdrom.borrow_mut(),
-            spu: &mut self.spu.borrow_mut(),
-        };
+    pub fn strip_region(addr: u32) -> u32 {
+        const MASK: [u32; 4] = [0x1fff_ffff, 0x1fff_ffff, 0x1fff_ffff, 0xffff_ffff];
 
-        self.cpu.run(&mut accessor);
+        addr & MASK[(addr >> 30) as usize]
     }
 
-    pub fn run_until(&mut self, target_pc: u32) {
-        let mut accessor = BusAccessor {
-            ram: &mut self.ram.borrow_mut(),
-            bios: &mut self.bios.borrow_mut(),
-            dma: &mut self.dma.borrow_mut(),
-            joy_mc: &mut self.joy_mc.borrow_mut(),
-            gpu: &mut self.gpu.borrow_mut(),
-            timers: &mut self.timers.borrow_mut(),
-            cdrom: &mut self.cdrom.borrow_mut(),
-            spu: &mut self.spu.borrow_mut(),
-        };
-        
-        self.cpu.run_until(&mut accessor, target_pc);
+    pub fn process_events(&mut self) {
+        let total = self.total_cycles;
+
+        while let Some(ev) = self.events.peek() {
+            if ev.cycles_target < total {
+                let ev = self.events.pop().unwrap();
+
+                self.process_event(ev.kind);
+
+                if ev.repeat > 0 {
+                    self.events.push(PsxEvent {
+                        kind: ev.kind,
+                        repeat: ev.repeat,
+                        cycles_target: total + ev.repeat,
+                    });
+                }
+            } else {
+                // The item at the head of the heap isn't ready to be processed
+                // yet. So none of them are.
+                break;
+            }
+        }
     }
 
-    // pub fn run_for(&self, cycles: u64) {
-    //     let target = *self.total_cycles.borrow() + cycles;
-    //     while *self.total_cycles.borrow() < target {
-    //         self.cpu.borrow_mut().cycle();
-    //     }
+    pub fn add_event(&mut self, kind: PsxEventType, mut first_target: u64, repeat_after: u64) {
+        // If an event of the same type exists, remove it
+        // TODO: retain is unstable API. Alternatives?
+        self.events.retain(|ev| ev.kind != kind);
+
+        if first_target == 0 && repeat_after != 0 {
+            first_target = self.total_cycles + repeat_after;
+        } else if first_target == 0 {
+            panic!("Invalid event");
+        }
+
+        // New event
+        self.events.push(PsxEvent {
+            kind,
+            cycles_target: first_target,
+            repeat: repeat_after,
+        });
+    }
+
+    // pub fn remove_event(&self, kind: PsxEventType) {
+    //     let mut events = self.events;
+
+    //     // If an event of the same type exists, remove it
+    //     // TODO: retain is unstable API. Alternatives?
+    //     events.retain(|ev| ev.kind != kind);
     // }
 
-    /// Installs weak references of self into the devices to allow
-    /// omnidirectional communication
-    pub fn link(&self, self_ref: Rc<RefCell<Self>>) {
-        self.timers.borrow_mut().link(Rc::downgrade(&self_ref));
-        self.gpu.borrow_mut().link(Rc::downgrade(&self_ref));
-        self.gpu.borrow_mut().load_renderer();
-        self.cdrom.borrow_mut().link(Rc::downgrade(&self_ref));
+    pub fn process_event(&mut self, kind: PsxEventType) {
+        match kind {
+            PsxEventType::DeliverCDRomResponse => {
+                self.cdrom.next_response();
+            }
+            PsxEventType::VBlank => {
+                self.gpu.vblank();
+            }
+        }
     }
 
-    pub fn load_rom(&self, path: &str) {
-        let mut file = File::open(path).unwrap();
-        self.bios.borrow_mut().load(&mut file);
+    pub fn send_irq(&mut self, irq_num: u32) {
+        if irq_num > 10 {
+            panic!("[BUS] Invalid IRQ number");
+        }
+
+        self.irq |= 1 << irq_num;
     }
 
     pub fn write_io<const S: u32>(&self, addr: u32, value: u32) {
-        self.io.borrow_mut().write::<S>(addr as u32, value);
+        // self.io.write::<S>(addr as u32, value);
 
         match addr {
             0x1000 => {
@@ -186,94 +190,8 @@ impl Bus {
         }
     }
 
-    pub fn strip_region(addr: u32) -> u32 {
-        const MASK: [u32; 4] = [0x1fff_ffff, 0x1fff_ffff, 0x1fff_ffff, 0xffff_ffff];
-
-        addr & MASK[(addr >> 30) as usize]
-    }
-
-    pub fn process_events(&self) {
-        let total = self.total_cycles.borrow();
-        let mut events = self.events.borrow_mut();
-
-        while let Some(ev) = events.peek() {
-            if ev.cycles_target < *total {
-                let ev = events.pop().unwrap();
-
-                self.process_event(ev.kind);
-
-                if ev.repeat > 0 {
-                    events.push(PsxEvent {
-                        kind: ev.kind,
-                        repeat: ev.repeat,
-                        cycles_target: *total + ev.repeat,
-                    });
-                }
-            } else {
-                // The item at the head of the heap isn't ready to be processed
-                // yet. So none of them are.
-                break;
-            }
-        }
-    }
-
-    pub fn add_event(&self, kind: PsxEventType, mut first_target: u64, repeat_after: u64) {
-        let mut events = self.events.borrow_mut();
-
-        // If an event of the same type exists, remove it
-        // TODO: retain is unstable API. Alternatives?
-        events.retain(|ev| ev.kind != kind);
-
-        if first_target == 0 && repeat_after != 0 {
-            first_target = *self.total_cycles.borrow() + repeat_after;
-        } else if first_target == 0 {
-            panic!("Invalid event");
-        }
-
-        // New event
-        events.push(PsxEvent {
-            kind,
-            cycles_target: first_target,
-            repeat: repeat_after,
-        });
-    }
-
-    // pub fn remove_event(&self, kind: PsxEventType) {
-    //     let mut events = self.events.borrow_mut();
-
-    //     // If an event of the same type exists, remove it
-    //     // TODO: retain is unstable API. Alternatives?
-    //     events.retain(|ev| ev.kind != kind);
-    // }
-
-    pub fn process_event(&self, kind: PsxEventType) {
-        match kind {
-            PsxEventType::DeliverCDRomResponse => {
-                self.cdrom.borrow_mut().next_response();
-            }
-            PsxEventType::VBlank => {
-                self.gpu.borrow_mut().vblank();
-            }
-        }
-    }
-
-    pub fn send_irq(&self, irq_num: u32) {
-        if irq_num > 10 {
-            panic!("[BUS] Invalid IRQ number");
-        }
-
-        self.cpu_tx.send(CpuCommand::Irq(irq_num)).unwrap();
-    }
-
-    #[inline(always)]
-    fn add_cycles(&self, count: u64) {
-        (*self.total_cycles.borrow_mut()) += count;
-    }
-}
-
-impl Bus {
-    fn handle_dma_write(&self) {
-        if let Some(active_channel) = self.dma.borrow_mut().active_channel() {
+    fn handle_dma_write(&mut self) {
+        if let Some(active_channel) = self.dma.active_channel() {
             let step = active_channel.step();
             let mut addr = active_channel.base();
 
@@ -294,7 +212,7 @@ impl Bus {
                                         1 => 0xff_ffff,
                                         _ => addr.wrapping_add(step as u32) & 0x1f_fffc,
                                     };
-                                    self.ram.borrow_mut().write::<4>(addr, word);
+                                    self.ram.write::<4>(addr, word);
                                 }
                             }
                             addr = addr.wrapping_add(step as u32) & 0x1f_fffc;
@@ -307,12 +225,12 @@ impl Bus {
                     }
                     ChannelLink::Cdrom => {
                         let mut remaining_words = block_size * blocks;
-                        let mut cdrom = self.cdrom.borrow_mut();
+                        let cdrom = &mut self.cdrom;
                         while remaining_words > 0 {
                             match active_channel.direction() {
                                 Direction::ToRam => {
                                     let value = cdrom.read::<1>(2) | cdrom.read::<1>(2) << 8 | cdrom.read::<1>(2) << 16 | cdrom.read::<1>(2) << 24;
-                                    self.ram.borrow_mut().write::<4>(addr, value);
+                                    self.ram.write::<4>(addr, value);
                                     addr = addr.wrapping_add(4);
                                     remaining_words -= 1;
                                 }
@@ -333,7 +251,7 @@ impl Bus {
                             loop {
                                 match active_channel.direction() {
                                     Direction::FromRam => {
-                                        let header = self.ram.borrow_mut().read::<4>(addr);
+                                        let header = self.ram.read::<4>(addr);
                                         let word_count = header >> 24;
                  
                                         // if word_count > 0 {
@@ -343,8 +261,8 @@ impl Bus {
                  
                                         for _ in 0..word_count {
                                             addr = addr.wrapping_add(step as u32);
-                                            let cmd = self.ram.borrow_mut().read::<4>(addr);
-                                            self.gpu.borrow_mut().process_gp0(cmd);
+                                            let cmd = self.ram.read::<4>(addr);
+                                            self.gpu.process_gp0(cmd);
                                         }
 
                                         addr = header & 0xffffff;
@@ -369,8 +287,8 @@ impl Bus {
                         for _ in 0..(blocks * block_size) as usize {
                             match active_channel.direction() {
                                 Direction::FromRam => {
-                                    let value = self.ram.borrow_mut().read::<4>(addr);
-                                    self.gpu.borrow_mut().process_gp0(value);
+                                    let value = self.ram.read::<4>(addr);
+                                    self.gpu.process_gp0(value);
                                     addr = addr.wrapping_add(step as u32);
                                 }
                                 Direction::ToRam => {
@@ -391,82 +309,16 @@ impl Bus {
             };
         }
     }
-
-    pub fn load_exe(&mut self, path: &str) {
-        use std::io::BufReader;
-        use std::io::Read;
-        use std::io::Seek;
-        use std::mem;
-
-        let mut header = PsxExeHeader::default();
-        let file = File::open(path).unwrap();
-        let mut reader = BufReader::new(file);
-
-        unsafe {
-            let buffer: &mut [u8] = std::slice::from_raw_parts_mut(
-                &mut header as *mut _ as *mut u8,
-                mem::size_of::<PsxExeHeader>(),
-            );
-
-            reader.read_exact(buffer).unwrap();
-        }
-
-        reader.seek(std::io::SeekFrom::Start(0x800)).unwrap();
-        let mut code = vec![0_u8; header.size as usize];
-        reader.read_exact(&mut code).unwrap();
-
-        let mut addr = header.destination & 0x1f_fffc;
-
-        let mut ram = self.ram.borrow_mut();
-
-        for b in code.iter() {
-            ram.write::<1>(addr, *b as u32);
-            addr = (addr + 1) & 0x3f_ffff;
-        }
-
-        self.cpu.pc = header.pc;
-        self.cpu.regs[28] = header.r28;
-        self.cpu.regs[29] = header.r29_base + header.r29_offset;
-
-        if self.cpu.regs[29] == 0 {
-            self.cpu.regs[29] = 0x801f_fff0;
-        }
-    }
 }
 
-#[derive(Debug, Default)]
-#[repr(C)]
-pub struct PsxExeHeader {
-    signature: [u8; 8],
-    zero1: [u8; 8],
-    pc: u32,
-    r28: u32,
-    destination: u32,
-    size: u32,
-    zero2: [u32; 2],
-    memfill_address: u32,
-    memfill_size: u32,
-    r29_base: u32,
-    r29_offset: u32,
-}
-
-struct BusAccessor<'a> {
-    ram: &'a mut Ram,
-    bios: &'a mut Bios,
-    dma: &'a mut Dma,
-    joy_mc: &'a mut JoypadMemorycard,
-    gpu: &'a mut Gpu,
-    timers: &'a mut Timers,
-    cdrom: &'a mut Cdrom,
-    spu: &'a mut Spu,
-}
-
-impl<'a> PsxBus for BusAccessor<'a> {
-    fn update_cycles(&self, cycles: u64) {
+impl PsxBus for System {
+    fn update_cycles(&mut self, cycles: u64) {
+        self.total_cycles += cycles;
+        self.process_events();
     }
 
     fn read<const S: u32>(&mut self, addr: u32) -> u32 {
-        let addr = Bus::strip_region(addr);
+        let addr = System::strip_region(addr);
 
         match addr {
             0x0000_0000..=0x001f_ffff => {
@@ -490,7 +342,7 @@ impl<'a> PsxBus for BusAccessor<'a> {
                 self.dma.read::<S>(addr - 0x1f80_1080)
             }
             0x1f80_1100..=0x1f80_112f => {
-                self.timers.read::<S>(addr - 0x1f80_1100)
+                self.timers.read::<S>(self.total_cycles, addr - 0x1f80_1100)
             }
             0x1f80_1800..=0x1f80_1803 => {
                 self.cdrom.read::<S>(addr - 0x1f80_1800)
@@ -548,7 +400,7 @@ impl<'a> PsxBus for BusAccessor<'a> {
                 // self.handle_dma_write();
             }
             0x1f80_1100..=0x1f80_112f => {
-                self.timers.write::<S>(addr - 0x1f80_1100, value);
+                self.timers.write::<S>(self.total_cycles, addr - 0x1f80_1100, value);
             }
             0x1f80_1800..=0x1f80_1803 => {
                 self.cdrom
@@ -568,7 +420,7 @@ impl<'a> PsxBus for BusAccessor<'a> {
                 // However at 2041, there's the POST 7seg display
             }
             0x1f80_1000..=0x1f80_1020 | 0x1f80_1060 => {
-                // self.write_io::<S>(addr & 0xffff, value);
+                self.write_io::<S>(addr & 0xffff, value);
             }
             0x1fa0_0000 => {
                 // EXP3: ignore

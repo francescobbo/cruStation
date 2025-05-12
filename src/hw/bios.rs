@@ -1,4 +1,3 @@
-use crate::hw::bus::{BusDevice};
 // use crate::hw::cpu::{Cpu, PsxBus};
 use crate::hw::vec::ByteSerialized;
 
@@ -25,14 +24,12 @@ impl Bios {
             panic!("Could not read BIOS file");
         }
     }
-}
-
-impl BusDevice for Bios {
-    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+    
+    pub fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         self.memory.read::<S>(addr)
     }
 
-    fn write<const S: u32>(&mut self, _addr: u32, _value: u32) {
+    pub fn write<const S: u32>(&mut self, _addr: u32, _value: u32) {
         panic!("Attempt to write in the BIOS ROM");
     }
 }

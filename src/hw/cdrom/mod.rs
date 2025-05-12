@@ -1,4 +1,3 @@
-use crate::hw::bus::{Bus, BusDevice, PsxEventType};
 use bitfield::bitfield;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
@@ -48,8 +47,6 @@ struct Interrupt {
 }
 
 pub struct Cdrom {
-    bus: Weak<RefCell<Bus>>,
-
     controller_status: ControllerStatus,
     stat: Stat,
 
@@ -61,8 +58,6 @@ pub struct Cdrom {
 impl Cdrom {
     pub fn new() -> Cdrom {
         Cdrom {
-            bus: Weak::new(),
-
             controller_status: ControllerStatus(0),
             stat: Stat(0),
 
@@ -70,10 +65,6 @@ impl Cdrom {
             pending_irqs: AllocRingBuffer::with_capacity(16),
             interrupt_enable: 0,
         }
-    }
-
-    pub fn link(&mut self, bus: Weak<RefCell<Bus>>) {
-        self.bus = bus;
     }
 }
 
@@ -90,8 +81,8 @@ fn grow_to<const S: u32>(value: u8) -> u32 {
     }
 }
 
-impl BusDevice for Cdrom {
-    fn read<const S: u32>(&mut self, addr: u32) -> u32 {
+impl Cdrom {
+    pub fn read<const S: u32>(&mut self, addr: u32) -> u32 {
         // print!("[CDR] Read {:04x}: ", addr);
 
         let val = match addr {
@@ -113,11 +104,11 @@ impl BusDevice for Cdrom {
                         if irq.data.is_empty() && irq.acknowledged {
                             self.pending_irqs.dequeue();
                             if !self.pending_irqs.is_empty() {
-                                self.bus.upgrade().unwrap().borrow().add_event(
-                                    PsxEventType::DeliverCDRomResponse,
-                                    50000,
-                                    0,
-                                );
+                                // self.bus.upgrade().unwrap().borrow().add_event(
+                                //     PsxEventType::DeliverCDRomResponse,
+                                //     50000,
+                                //     0,
+                                // );
                             }
                         }
 
@@ -161,7 +152,7 @@ impl BusDevice for Cdrom {
         grow_to::<S>(val)
     }
 
-    fn write<const S: u32>(&mut self, addr: u32, value: u32) {
+    pub fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         println!(
             "[CDR] Write to reg {:04x} {:08x} of size {}",
             addr,
@@ -240,11 +231,11 @@ impl BusDevice for Cdrom {
                             if irq.data.is_empty() {
                                 self.pending_irqs.dequeue();
                                 if !self.pending_irqs.is_empty() {
-                                    self.bus.upgrade().unwrap().borrow().add_event(
-                                        PsxEventType::DeliverCDRomResponse,
-                                        50000,
-                                        0,
-                                    );
+                                    // self.bus.upgrade().unwrap().borrow().add_event(
+                                    //     PsxEventType::DeliverCDRomResponse,
+                                    //     50000,
+                                    //     0,
+                                    // );
                                 }
                             }
                         }
@@ -263,9 +254,7 @@ impl BusDevice for Cdrom {
             _ => panic!("[CDR] Invalid addr"),
         };
     }
-}
 
-impl Cdrom {
     fn handle_command(&mut self, command: u8) {
         match command {
             0x01 => {
@@ -327,17 +316,17 @@ impl Cdrom {
             acknowledged: false,
         });
 
-        self.bus.upgrade().unwrap().borrow().add_event(
-            PsxEventType::DeliverCDRomResponse,
-            50000,
-            0,
-        );
+        // self.bus.upgrade().unwrap().borrow().add_event(
+        //     PsxEventType::DeliverCDRomResponse,
+        //     50000,
+        //     0,
+        // );
     }
 
     pub fn next_response(&mut self) {
         // let response = self.pending_irqs.get(0).unwrap();
 
         println!("Deliver CDROM response");
-        self.bus.upgrade().unwrap().borrow().send_irq(2);
+        // self.bus.upgrade().unwrap().borrow().send_irq(2);
     }
 }
