@@ -133,20 +133,20 @@ pub enum Exception {
 const WRITE_MASKS: [u32; 16] = [
     0,
     0,
+    0,           // BusCtrl ("(R3041 only) configure bus interface signals.")
+    0xffff_ffff, // Config ("CPU configuration (R3081 and R3041 only)")
     0,
-    0xffff_ffff,
+    0xffff_ffff,  
     0,
-    0xffff_ffff,
-    0,
-    0xff80_f03f,
-    0,
-    0xffff_ffff,
-    0,
-    0xffff_ffff,
-    0xf04f_ff3f,
-    0x0000_0300,
-    0,
-    0,
+    0xff80_f03f, // ????
+    0,           // BadAddr ("Contains the last invalid program address which caused a trap. It is set by address errors of all kinds, even if there is no MMU")
+    0xffff_ffff, // BDAM
+    0,           // Unused (R3041 only), PortSize
+    0xffff_ffff, // BPCM
+    0xf04f_ff3f, // SR (Status Register)
+    0x0000_0300, // CAUSE
+    0,           // EPC
+    0,           // PRID
 ];
 
 const BDAM: usize = 9;

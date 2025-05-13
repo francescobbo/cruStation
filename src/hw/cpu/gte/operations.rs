@@ -110,7 +110,8 @@ impl Gte {
     }
 
     fn lm_d(&mut self, value: i32, unchained: bool) -> i32 {
-        // Not sure if we should have it as int64, or just chain on to and special case when the F flags are set.
+        // Not sure if we should have it as int64, or just chain on to and special case
+        // when the F flags are set.
         if !unchained {
             if self.flags.mac0_of_neg() {
                 self.flags.set_sz3_otz_sat(true);

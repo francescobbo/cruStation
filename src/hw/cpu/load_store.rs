@@ -204,9 +204,7 @@ impl Cpu {
                         self.extra_cycles += 2;
                         self.i_mask
                     }
-                    _ => unsafe { 
-                        self.bus.read::<T>(address)
-                    },
+                    _ => self.bus.read::<T>(address),
                 }
             }
         }
@@ -250,9 +248,7 @@ impl Cpu {
                         self.i_mask = value & !0xf800;
                         self.check_interrupts();
                     }
-                    _ => unsafe {
-                        self.bus.write::<T>(address, value);
-                    },
+                    _ => self.bus.write::<T>(address, value),
                 }
             }
         }

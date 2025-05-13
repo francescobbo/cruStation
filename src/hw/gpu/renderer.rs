@@ -60,12 +60,12 @@ impl Renderer {
             .build()
             .expect("Failed to create window");
 
-        println!("Window flags: {:?}", window.window_flags());
-
         let gl_context = window.gl_create_context().unwrap();
         window.gl_make_current(&gl_context).expect("Failed to make GL context current");
 
-        gl::load_with(|s| video_subsystem.gl_get_proc_address(s).unwrap() as *const std::os::raw::c_void);
+        gl::load_with(|s| {
+            video_subsystem.gl_get_proc_address(s).unwrap() as *const std::os::raw::c_void
+        });
 
         unsafe {
             gl::ClearColor(0.1, 0.1, 0.15, 1.0);
@@ -74,17 +74,18 @@ impl Renderer {
             gl::Scissor(0, 0, 1024_i32, 512_i32);
         }
 
+        video_subsystem.gl_set_swap_interval(0).unwrap();
         window.gl_swap_window();
 
         let vs_src = include_str!("shaders/vertex.glsl");
         let fs_src = include_str!("shaders/fragment.glsl");
 
-        // Compile our shaders...
+        // Compile the shaders
         let vertex_shader = compile_shader(vs_src, gl::VERTEX_SHADER);
         let fragment_shader = compile_shader(fs_src, gl::FRAGMENT_SHADER);
-        // ... Link our program...
+        // Link the shader program
         let program = link_program(&[vertex_shader, fragment_shader]);
-        // ... And use it.
+        // Activate the program
         unsafe {
             gl::UseProgram(program);
         }

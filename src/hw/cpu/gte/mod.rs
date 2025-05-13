@@ -99,9 +99,15 @@ pub struct Gte {
     fc: [i32; 4],
     null: [i32; 4],
 
+    /// Screen offset
+    /// 32 bit, signed 15.16 fixed point
     ofx: i32,
     ofy: i32,
+
+    /// Projection plane distance
+    /// 16 bit integer, unsigned.
     h: u16,
+
     dqa: i16,
     dqb: i32,
 
@@ -112,11 +118,22 @@ pub struct Gte {
     rgb: RGB,
     otz: u16,
 
+    /// Intermediary registers
+    /// 16 bit integers, signed.
     ir: [i16; 4],
+
     xy_fifo: [XY; 4],
+
+    /// Screen Z-coordinate FIFO
+    /// 16 bit integer, unsigned.
     z_fifo: [u16; 4],
+
     rgb_fifo: [RGB; 3],
+
+    /// Math accumulators.
+    /// 32 bit integers, signed.
     mac: [i32; 4],
+
     lzcs: u32,
     lzcr: u32,
 

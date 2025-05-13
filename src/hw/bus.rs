@@ -88,9 +88,9 @@ impl Bus {
         let cpu_freq = 33868800;
         let vblank_freq = 60;
         let vblank_cycles = cpu_freq / vblank_freq;
-        bus
-            .add_event(PsxEventType::VBlank, 0, vblank_cycles);
+        bus.add_event(PsxEventType::VBlank, 0, vblank_cycles);
 
+        #[cfg(not(test))]
         bus.gpu.load_renderer();
 
         bus
@@ -329,8 +329,7 @@ impl Bus {
                 self.ram.write::<S>(addr, value);
             }
             0x1f80_1040..=0x1f80_104f => {
-                self.joy_mc
-                    .write::<S>(addr - 0x1f80_1040, value);
+                self.joy_mc.write::<S>(addr - 0x1f80_1040, value);
             }
             0x1f80_1050..=0x1f80_105f => {
                 // SIO: TODO
@@ -344,8 +343,7 @@ impl Bus {
                     .write::<S>(addr - 0x1f80_1100, value, self.total_cycles);
             }
             0x1f80_1800..=0x1f80_1803 => {
-                let cmd = self.cdrom
-                    .write::<S>(addr - 0x1f80_1800, value);
+                let cmd = self.cdrom.write::<S>(addr - 0x1f80_1800, value);
 
                 match cmd {
                     CpuCommand::EnqueueEvent(evt, ft, ra) => {
@@ -393,7 +391,8 @@ impl Bus {
                 SyncMode::Immediate => match active_channel.link() {
                     ChannelLink::Otc => {
                         let mut remaining_words = block_size;
-                        // println!("[DMA6] OTC -> RAM @ 0x{:08x}, block, count: 0x{:04x}\n", addr, remaining_words);
+                        // println!("[DMA6] OTC -> RAM @ 0x{:08x}, block, count: 0x{:04x}\n", addr,
+                        // remaining_words);
                         while remaining_words > 0 {
                             match active_channel.direction() {
                                 Direction::FromRam => {
@@ -449,7 +448,8 @@ impl Bus {
                                         let word_count = header >> 24;
 
                                         // if word_count > 0 {
-                                        //     println!("[DMA2] GPU <- RAM @ 0x{:08x}, count: {}, nextAddr: 0x{:08x}",
+                                        //     println!("[DMA2] GPU <- RAM @ 0x{:08x}, count: {},
+                                        // nextAddr: 0x{:08x}",
                                         //     addr, word_count, header);
                                         // }
 

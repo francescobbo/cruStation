@@ -1,7 +1,7 @@
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
 use crate::Cpu;
 use bitfield::bitfield;
-use ringbuffer::{AllocRingBuffer, RingBuffer};
+use ringbuffer::{AllocRingBuffer, RingBuffer, RingBufferExt, RingBufferRead, RingBufferWrite};
 
 use std::cell::RefCell;
 use std::rc::Weak;
@@ -108,7 +108,11 @@ impl Cdrom {
                         if irq.data.is_empty() && irq.acknowledged {
                             self.pending_irqs.dequeue();
                             if !self.pending_irqs.is_empty() {
-                                command = CpuCommand::EnqueueEvent(PsxEventType::DeliverCDRomResponse, 50000, 0);
+                                command = CpuCommand::EnqueueEvent(
+                                    PsxEventType::DeliverCDRomResponse,
+                                    50000,
+                                    0,
+                                );
                             }
                         }
 
@@ -120,7 +124,11 @@ impl Cdrom {
                     println!("[CDR] Tried to read response when none was available");
                     0
                 }
-                // TODO: When reading further bytes: The buffer is padded with 00h's to the end of the 16-bytes, and does then restart at the first response byte (that, without receiving a new response, so it'll always return the same 16 bytes, until a new command/response has been sent/received).
+                // TODO: When reading further bytes: The buffer is padded with
+                // 00h's to the end of the 16-bytes, and does then restart at
+                // the first response byte (that, without receiving a new
+                // response, so it'll always return the same 16 bytes, until a
+                // new command/response has been sent/received).
             }
             2 => {
                 // println!("[CDR] Trying to read cd data");
@@ -171,9 +179,7 @@ impl Cdrom {
             }
             1 => {
                 match self.controller_status.index() {
-                    0 => {
-                        self.handle_command(value)
-                    }
+                    0 => self.handle_command(value),
                     1 => {
                         // sound map data out
                         println!("[CDR] Wrote sound map data {:02x}", value);
@@ -235,7 +241,11 @@ impl Cdrom {
                             if irq.data.is_empty() {
                                 self.pending_irqs.dequeue();
                                 if !self.pending_irqs.is_empty() {
-                                    return CpuCommand::EnqueueEvent(PsxEventType::DeliverCDRomResponse, 50000, 0);
+                                    return CpuCommand::EnqueueEvent(
+                                        PsxEventType::DeliverCDRomResponse,
+                                        50000,
+                                        0,
+                                    );
                                 }
                             }
                         }

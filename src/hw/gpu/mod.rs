@@ -84,7 +84,8 @@ impl Gpu {
 impl BusDevice for Gpu {
     fn write<const S: u32>(&mut self, addr: u32, value: u32) {
         if S != 4 {
-            // println!("Unhandled {}-bytes GPU read", std::mem::size_of::<T>());
+            // println!("Unhandled {}-bytes GPU read",
+            // std::mem::size_of::<T>());
         }
 
         match addr {
@@ -721,8 +722,8 @@ impl Gpu {
         // println!("Remaining {}x{} = {}", width, height, size);
 
         // Yeah, the other way around...
-        // self.remaining_words = if size % 2 == 0 { size / 2 } else { size / 2 + 1};
-        // } else {
+        // self.remaining_words = if size % 2 == 0 { size / 2 } else { size / 2
+        // + 1}; } else {
         // println!("[GPU] Copy with {} words", self.buffer.len());
         // }
     }
@@ -817,13 +818,16 @@ impl Gpu {
                 // println!("[GPU] GP1(4): DMA Direction: {}", arguments & 3);
             }
             0x05 => {
-                // println!("[GPU] GP1(5): Start of display area {} {}", arguments & 0x3ff, (arguments >> 10) & 0x1ff);
+                // println!("[GPU] GP1(5): Start of display area {} {}",
+                // arguments & 0x3ff, (arguments >> 10) & 0x1ff);
             }
             0x06 => {
-                // println!("[GPU] GP1(6): Horizontal display range {} {}", arguments & 0xfff, (arguments >> 12) & 0xfff);
+                // println!("[GPU] GP1(6): Horizontal display range {} {}",
+                // arguments & 0xfff, (arguments >> 12) & 0xfff);
             }
             0x07 => {
-                // println!("[GPU] GP1(7): Vertical display range {} {}", arguments & 0x3ff, (arguments >> 10) & 0x3ff);
+                // println!("[GPU] GP1(7): Vertical display range {} {}",
+                // arguments & 0x3ff, (arguments >> 10) & 0x3ff);
             }
             0x08 => {
                 self.gpustat.0 &= !(0x7F_4000);
@@ -834,9 +838,11 @@ impl Gpu {
                 // let cpu_freq = 33868800;
                 // let vblank_freq = 60;
                 // let vblank_cycles = cpu_freq / vblank_freq;
-                // self.bus.upgrade().unwrap().borrow().add_event(PsxEventType::VBlank, 0, vblank_cycles);
+                // self.bus.upgrade().unwrap().borrow().
+                // add_event(PsxEventType::VBlank, 0, vblank_cycles);
 
-                // println!("[GPU] GP1(08) - New GPUSTAT: {:08x}", self.gpustat.0);
+                // println!("[GPU] GP1(08) - New GPUSTAT: {:08x}",
+                // self.gpustat.0);
             }
             0x10..=0x1f => {
                 // println!("[GPU] Unimplemented GP1(0x10): Get GPU info");

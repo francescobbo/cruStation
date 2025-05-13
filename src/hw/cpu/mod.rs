@@ -36,7 +36,7 @@ pub struct Cpu {
     pub bus: Bus,
 
     pub pc: u32,
-    pub regs: [u32; 33],
+    pub regs: [u32; 33], // The extra 33rd register is a placeholder for unused load delay slots
     pub hi: u32,
     pub lo: u32,
 
@@ -54,7 +54,6 @@ pub struct Cpu {
     pub branch_delay_slot: Option<(u32, u32)>,
     load_delay_slot: [LoadDelaySlot; 2],
     in_delay: bool,
-
 
     extra_cycles: u64,
 
@@ -100,7 +99,6 @@ impl Cpu {
             //     .duration_since(UNIX_EPOCH)
             //     .unwrap()
             //     .as_millis(),
-
             extra_cycles: 0,
             tasks: VecDeque::new(),
         }
@@ -172,7 +170,7 @@ impl Cpu {
                     }
                     _ => {}
                 }
-            }       
+            }
 
             let cycles = self.step();
             self.tasks.extend(self.bus.add_cycles(cycles));
@@ -182,7 +180,6 @@ impl Cpu {
             }
         }
     }
-
 
     pub fn send_irq(&mut self, irq_num: u32) {
         if irq_num > 10 {
@@ -380,7 +377,7 @@ impl Cpu {
         if self.load_delay_slot[0].register == reg {
             self.load_delay_slot[0].register = 32;
         }
-    }    
+    }
 
     pub fn load_exe(&mut self, path: &str) {
         use std::io::BufReader;
@@ -422,9 +419,7 @@ impl Cpu {
             self.regs[29] = 0x801f_fff0;
         }
     }
-
 }
-
 
 #[derive(Debug, Default)]
 #[repr(C)]

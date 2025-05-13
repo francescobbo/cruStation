@@ -22,8 +22,7 @@ fn load_fuzz_tests(set_name: &str) -> Vec<GteFuzzTest> {
     tests
 }
 
-extern crate crustationcpu;
-use crustationcpu::gte::{Flags, Gte};
+use crate::hw::gte::Gte;
 
 #[test]
 fn registers() {

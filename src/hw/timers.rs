@@ -62,7 +62,8 @@ impl Timer {
         // Reset current value on status writes
         self.current = 0;
         self.refresh_cycles(bus_total_cycles);
-        //println!("Wrote {:08x} mode to tmr{} ({:?})", self.status.0, self.n, self.status);
+        //println!("Wrote {:08x} mode to tmr{} ({:?})", self.status.0, self.n,
+        // self.status);
     }
 
     pub fn write_target(&mut self, value: u16) {
@@ -169,7 +170,8 @@ impl Timers {
                 timer.write_target(value as u16);
             }
             _ => {
-                //println!("Invalid access to register {:x} on timer {}", addr & 0xf, n);
+                //println!("Invalid access to register {:x} on timer {}", addr
+                // & 0xf, n);
             }
         }
     }

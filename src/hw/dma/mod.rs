@@ -193,7 +193,8 @@ impl BusDevice for Dma {
             }
             0x74 => {
                 self.write_dicr(value);
-                // println!("[DMA] Wrote {:08x} to DICR, resulting in new DICR: {:08x}", value, self.dicr);
+                // println!("[DMA] Wrote {:08x} to DICR, resulting in new DICR:
+                // {:08x}", value, self.dicr);
             }
             0x78 => unimplemented!(),
             0x7c => unimplemented!(),
@@ -277,8 +278,10 @@ impl BusDevice for Channel {
             0x00 => self.base,
             0x04 => self.read_block_control(),
             0x08 => {
-                // println!("[DMA] READ D{}_CHCR = {:08x};  State: {:?}; Trigger: {:?}; Sync: {:?}; Dir: {:?}; Step: {:?}; Chop: {:?}",
-                // self.n, self.channel_control, self.busy, self.trigger, self.sync_mode, self.direction, self.step, self.chopping);
+                // println!("[DMA] READ D{}_CHCR = {:08x};  State: {:?}; Trigger: {:?}; Sync:
+                // {:?}; Dir: {:?}; Step: {:?}; Chop: {:?}", self.n, self.
+                // channel_control, self.busy, self.trigger, self.sync_mode, self.direction,
+                // self.step, self.chopping);
 
                 self.channel_control
             }
@@ -314,7 +317,8 @@ impl Channel {
         self.block_size = value & 0xffff;
         self.block_count = value >> 16;
 
-        // println!("[DMA] D{}_BCR = {} x {} words", self.n, self.block_count, self.block_size)
+        // println!("[DMA] D{}_BCR = {} x {} words", self.n, self.block_count,
+        // self.block_size)
     }
 
     fn set_channel_control(&mut self, mut value: u32) {
@@ -365,7 +369,9 @@ impl Channel {
 
         self.channel_control = value;
 
-        // println!("[DMA] D{}_CHCR = {:08x};  State: {:?}; Trigger: {:?}; Sync: {:?}; Dir: {:?}; Step: {:?}; Chop: {:?}",
-        // self.n, self.channel_control, self.busy, self.trigger, self.sync_mode, self.direction, self.step, self.chopping);
+        // println!("[DMA] D{}_CHCR = {:08x};  State: {:?}; Trigger: {:?}; Sync:
+        // {:?}; Dir: {:?}; Step: {:?}; Chop: {:?}", self.n, self.
+        // channel_control, self.busy, self.trigger, self.sync_mode,
+        // self.direction, self.step, self.chopping);
     }
 }
