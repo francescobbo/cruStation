@@ -17,6 +17,16 @@ ringbuffer = "0.8.2"
 rustyline = "9.0.0"
 sdl3 = { git = "https://github.com/revmischa/sdl3-rs" } 
 
+
+winit = "0.29"
+wgpu = "0.19" # Check for the latest version
+env_logger = "0.11"
+log = "0.4"
+pollster = "0.3"
+bytemuck = { version = "1.15", features = ["derive"] }
+cgmath = "0.18" # For potential matrix operations if needed, though not strictly for this example
+
+
 [profile.dev]
 # Reduce 33.8Mhz from 22 seconds to 1.7 seconds even in dev mode
 opt-level = 1
@@ -24,3 +34,11 @@ opt-level = 1
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[[bin]]
+name = "psx"
+path = "src/main.rs"
+
+[[bin]]
+name = "psx-gui"
+path = "gui/main.rs"
