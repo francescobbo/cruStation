@@ -41,7 +41,7 @@ pub enum GpuCommand {
     SetDrawingArea {
         x1: u16, // Top-left X
         y1: u16, // Top-left Y
-        x2: u16, // Bottom-right X (exclusive or inclusive needs PS1 spec check)
+        x2: u16, // Bottom-right X
         y2: u16, // Bottom-right Y
     },
     /// Sets an offset applied to all incoming vertex coordinates.

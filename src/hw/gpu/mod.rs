@@ -59,6 +59,11 @@ pub struct Gpu {
     /// Drawing offset in the framebuffer
     drawing_offset: (i16, i16),
 
+    horizontal_res: u16,
+    vertical_res: u16,  
+    display_top: u16,
+    display_left: u16,
+
     /// Renderer command channel
     renderer_tx: crossbeam_channel::Sender<GpuCommand>,
 }
@@ -74,9 +79,14 @@ impl Gpu {
 
             drawing_area_left: 0,
             drawing_area_top: 0,
-            drawing_area_right: 0,
-            drawing_area_bottom: 0,
+            drawing_area_right: 1023,
+            drawing_area_bottom: 511,
             drawing_offset: (0, 0),
+
+            horizontal_res: 0,
+            vertical_res: 0,
+            display_top: 0,
+            display_left: 0,
 
             renderer_tx,
         }
@@ -754,14 +764,14 @@ impl Gpu {
     }
 
     fn update_drawing_area(&mut self) {
-        if let Some(renderer) = &mut self.renderer {
-            renderer.set_drawing_area(
-                self.drawing_area_left,
-                self.drawing_area_top,
-                self.drawing_area_right,
-                self.drawing_area_bottom,
-            );
-        }
+        self.renderer_tx
+            .send(GpuCommand::SetDrawingArea {
+                x1: self.drawing_area_left,
+                y1: self.drawing_area_top,
+                x2: self.drawing_area_right,
+                y2: self.drawing_area_bottom,
+            })
+            .unwrap();
     }
 
     fn gp0_e5_drawing_offset(&mut self) {
@@ -815,7 +825,12 @@ impl Gpu {
             }
             0x05 => {
                 // println!("[GPU] GP1(5): Start of display area {} {}",
-                // arguments & 0x3ff, (arguments >> 10) & 0x1ff);
+                self.display_left = (arguments & 0x3ff) as u16;
+                self.display_top = ((arguments >> 10) & 0x1ff) as u16;
+
+                self.renderer_tx
+                    .send(GpuCommand::SetDisplayArea { x: self.display_left, y: self.display_top, w: self.horizontal_res, h: self.vertical_res })
+                    .unwrap();
             }
             0x06 => {
                 // println!("[GPU] GP1(6): Horizontal display range {} {}",
@@ -831,14 +846,23 @@ impl Gpu {
                 self.gpustat.0 |= (arguments & 0x40) << 10;
                 self.gpustat.0 |= (arguments & 0x3f) << 17;
 
-                // let cpu_freq = 33868800;
-                // let vblank_freq = 60;
-                // let vblank_cycles = cpu_freq / vblank_freq;
-                // self.bus.upgrade().unwrap().borrow().
-                // add_event(PsxEventType::VBlank, 0, vblank_cycles);
+                let horizontal_resolution_idx = (arguments & 0x3) | ((arguments & 0x40) >> 4);
+                self.horizontal_res = match horizontal_resolution_idx {
+                    0 => 256,
+                    1 => 320,
+                    2 => 512,
+                    3 => 640,
+                    _ => 368,
+                };
 
-                // println!("[GPU] GP1(08) - New GPUSTAT: {:08x}",
-                // self.gpustat.0);
+                self.vertical_res = if (arguments & 0x40) != 0 { 480 } else { 240 };
+                
+                // TODO: understand why the BIOS sets 640x240, which is wrong
+                self.vertical_res = 480;
+
+                self.renderer_tx
+                    .send(GpuCommand::SetDisplayArea { x: self.display_left, y: self.display_top, w: self.horizontal_res, h: self.vertical_res })
+                    .unwrap();
             }
             0x10..=0x1f => {
                 // println!("[GPU] Unimplemented GP1(0x10): Get GPU info");

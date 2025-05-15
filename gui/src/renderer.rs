@@ -10,7 +10,6 @@ use crate::vertex_data::{
 use crate::texture::TextureRenderTarget;
 use crate::render_pipelines;
 use crate::gpu_command::{GpuCommand, PsxVertex as CommandPsxVertex}; // Alias to avoid conflict
-use crate::system::PsxGpuRegisters; // To read GPU state
 
 pub struct Renderer {
     // WGPU Core
@@ -40,6 +39,13 @@ pub struct Renderer {
     final_display_viewport_height: f32,
 
     command_rx: crossbeam_channel::Receiver<GpuCommand>,
+
+    drawing_area_x1: u16,
+    drawing_area_y1: u16,
+    drawing_area_x2: u16,
+    drawing_area_y2: u16,
+    drawing_offset_x: i16,
+    drawing_offset_y: i16,
 }
 
 impl Renderer {
@@ -131,6 +137,13 @@ impl Renderer {
             final_display_viewport_width: window_size.width as f32,
             final_display_viewport_height: window_size.height as f32,
 
+            drawing_area_x1: 0,
+            drawing_area_y1: 0,
+            drawing_area_x2: 1023,
+            drawing_area_y2: 511,
+            drawing_offset_x: 0,
+            drawing_offset_y: 0,
+
             command_rx
         };
 
@@ -153,7 +166,7 @@ impl Renderer {
                     // println!("Received command: {:?}", command);
                     // log::info!("Received command: {:?}", command);
 
-                    renderer.lock().unwrap().process_gpu_command(&PsxGpuRegisters::default(), command);
+                    renderer.lock().unwrap().process_gpu_command(command);
                 }
             }
         });
@@ -217,7 +230,7 @@ impl Renderer {
             return;
         }
 
-        let u_min = src_x as f32 / VRAM_WIDTH as f32;
+        let u_min: f32 = src_x as f32 / VRAM_WIDTH as f32;
         let v_min = src_y as f32 / VRAM_HEIGHT as f32;
         let u_max = (src_x + src_w) as f32 / VRAM_WIDTH as f32;
         let v_max = (src_y + src_h) as f32 / VRAM_HEIGHT as f32;
@@ -244,9 +257,9 @@ impl Renderer {
         }
     }
 
-    fn transform_command_vertex(&self, psx_v: &CommandPsxVertex, regs: &PsxGpuRegisters, viewport_w: f32, viewport_h: f32) -> GpuVertex {
-        let x_offset = psx_v.x as f32 + regs.drawing_offset_x as f32;
-        let y_offset = psx_v.y as f32 + regs.drawing_offset_y as f32;
+    fn transform_command_vertex(&self, psx_v: &CommandPsxVertex, viewport_w: f32, viewport_h: f32) -> GpuVertex {
+        let x_offset = psx_v.x as f32 + self.drawing_offset_x as f32;
+        let y_offset = psx_v.y as f32 + self.drawing_offset_y as f32;
 
         // Convert to NDC for the current viewport (derived from drawing_area)
         // Viewport origin (drawing_area_x1, drawing_area_y1) maps to NDC (-1, 1) with Y-flip
@@ -263,7 +276,7 @@ impl Renderer {
         }
     }
 
-    pub fn process_gpu_command(&mut self, gpu_regs: &PsxGpuRegisters, command: GpuCommand) {
+    pub fn process_gpu_command(&mut self, command: GpuCommand) {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Renderer Command Encoder"),
         });
@@ -271,61 +284,33 @@ impl Renderer {
         // Vec to store WGPU-ready vertices for a single draw call or small batch
         let mut current_wgpu_vertices_batch: Vec<GpuVertex> = Vec::new();
 
-        // Handle display area updates (affects screen_quad_vertex_buffer for present_display)
-        let new_display_params = (
-            gpu_regs.display_vram_x as u32,
-            gpu_regs.display_vram_y as u32,
-            gpu_regs.display_width,
-            gpu_regs.display_height,
-        );
-
-        if new_display_params != self.current_display_params && 
-           new_display_params.2 > 0 && new_display_params.3 > 0 { // Ensure valid width/height
-            self.current_display_params = new_display_params;
-            log::info!("Display area updated: VRAM@({},{}) {}x{}. Updating screen quad.",
-                self.current_display_params.0, self.current_display_params.1,
-                self.current_display_params.2, self.current_display_params.3);
-
-            let (du_min, dv_min, du_max, dv_max) = (
-                self.current_display_params.0 as f32 / VRAM_WIDTH as f32,
-                self.current_display_params.1 as f32 / VRAM_HEIGHT as f32,
-                (self.current_display_params.0 + self.current_display_params.2) as f32 / VRAM_WIDTH as f32,
-                (self.current_display_params.1 + self.current_display_params.3) as f32 / VRAM_HEIGHT as f32,
-            );
-            let updated_quad_verts: [ScreenQuadVertex; 6] = [
-                ScreenQuadVertex { position: [-1.0,  1.0], tex_coords: [du_min, dv_min] },
-                ScreenQuadVertex { position: [-1.0, -1.0], tex_coords: [du_min, dv_max] },
-                ScreenQuadVertex { position: [ 1.0,  1.0], tex_coords: [du_max, dv_min] },
-                ScreenQuadVertex { position: [-1.0, -1.0], tex_coords: [du_min, dv_max] },
-                ScreenQuadVertex { position: [ 1.0, -1.0], tex_coords: [du_max, dv_max] },
-                ScreenQuadVertex { position: [ 1.0,  1.0], tex_coords: [du_max, dv_min] },
-            ];
-            self.update_screen_quad_tex_coords(); // Update what part of VRAM is sampled
-            self.update_final_display_viewport(); // Update how it's presented in the window
-            self.queue.write_buffer(&self.screen_quad_vertex_buffer, 0, bytemuck::cast_slice(&updated_quad_verts));
-        }
-
         match command {
-            GpuCommand::SetDrawingArea { .. } | GpuCommand::SetDrawingOffset { .. } => {
-                // These commands modify `gpu_regs`. The `gpu_regs` parameter is passed by the
-                // Emulator for each call to `process_gpu_commands`. When a drawing command
-                // needs these values, it will read the latest from the `gpu_regs` argument.
-                // No direct WGPU encoder action here; viewport/scissor are set per render pass.
+            GpuCommand::SetDrawingArea { x1, x2, y1, y2 } => {
+                // Update the drawing area for the next draw command
+                self.drawing_area_x1 = x1;
+                self.drawing_area_y1 = y1;
+                self.drawing_area_x2 = x2;
+                self.drawing_area_y2 = y2;
+            }
+            GpuCommand::SetDrawingOffset { x, y } => {
+                // Update the drawing offset for the next draw command
+                self.drawing_offset_x = x;
+                self.drawing_offset_y = y;
             }
             GpuCommand::DrawGouraudTriangle { vertices: psx_vertices } => {
                 current_wgpu_vertices_batch.clear(); // Prepare for new vertices
 
-                let da_x1 = gpu_regs.drawing_area_x1;
-                let da_y1 = gpu_regs.drawing_area_y1;
+                let da_x1 = self.drawing_area_x1;
+                let da_y1 = self.drawing_area_y1;
                 // Ensure width and height are at least 1 for valid viewport/scissor
-                let da_w = (gpu_regs.drawing_area_x2.saturating_sub(da_x1) + 1).max(1);
-                let da_h = (gpu_regs.drawing_area_y2.saturating_sub(da_y1) + 1).max(1);
+                let da_w = (self.drawing_area_x2.saturating_sub(da_x1) + 1).max(1);
+                let da_h = (self.drawing_area_y2.saturating_sub(da_y1) + 1).max(1);
                 let viewport_w_for_norm = da_w as f32;
                 let viewport_h_for_norm = da_h as f32;
 
                 for psx_v in psx_vertices.iter() {
                     current_wgpu_vertices_batch.push(
-                        self.transform_command_vertex(psx_v, gpu_regs, viewport_w_for_norm, viewport_h_for_norm)
+                        self.transform_command_vertex(psx_v, viewport_w_for_norm, viewport_h_for_norm)
                     );
                 }
 
@@ -402,11 +387,18 @@ impl Renderer {
                     );
                 }
             }
-            GpuCommand::SetDisplayArea { .. } => {
-                // This updates `gpu_regs` on the System side.
-                // The `Renderer` checks `gpu_regs.display_...` at the start of this function
-                // (or before `present_display`) to update its own `current_display_params`
-                // and the `screen_quad_vertex_buffer` if necessary. No direct encoder use here.
+            GpuCommand::SetDisplayArea { x, y, w, h } => {
+                let new_display_source_params = (
+                    x as u32,
+                    y as u32,
+                    (w as u32).max(1),
+                    (h as u32).max(1),
+                );
+                if new_display_source_params != self.current_display_params {
+                    self.current_display_params = new_display_source_params;
+                    self.update_screen_quad_tex_coords();
+                    self.update_final_display_viewport();
+                }
             }
             GpuCommand::DrawTexturedQuad { .. } => {
                 log::warn!("DrawTexturedQuad not yet implemented in Renderer.");

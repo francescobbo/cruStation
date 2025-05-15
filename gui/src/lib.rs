@@ -1,4 +1,3 @@
-mod system;
 mod renderer;
 mod texture;
 mod render_pipelines;
@@ -7,7 +6,7 @@ pub mod gpu_command;
 
 use std::sync::{Arc, Mutex};
 use winit::{
-    dpi::LogicalSize, event::Event, event_loop::{EventLoop}, window::WindowBuilder
+    dpi::LogicalSize, event::Event, event_loop::{ControlFlow, EventLoop}, window::WindowBuilder
 };
 
 pub use crate::gpu_command::GpuCommand;
@@ -56,6 +55,25 @@ impl EmuGui {
                     }
                 }
                 Event::AboutToWait => {
+                    match self.renderer.lock().unwrap().present_display() {
+                        Ok(_) => {}
+                        Err(wgpu::SurfaceError::Lost) => {
+                            log::warn!("Surface lost, reconfiguring.");
+                            self.renderer.lock().unwrap().resize_surface(self.window.inner_size());
+                        },
+                        // The system is out of memory, we should probably quit
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            log::error!("OutOfMemory error, exiting.");
+                            elwt.exit();
+                        }
+                        Err(e) => {
+                            // These should be recoverable in the next frame
+                            // log::error!("Failed to present display: {}", e);
+                        }
+                    }
+
+                    // 100 FPS!
+                    elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(10)));
                 }
                 Event::LoopExiting => {
                     log::info!("Emulator loop exiting.");
