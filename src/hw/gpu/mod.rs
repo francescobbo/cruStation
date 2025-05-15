@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::rc::Weak;
 
 use bitfield::bitfield;
+use crustationgui::{GpuCommand, PsxVertex};
 use renderer::{Color, Position, Renderer};
 
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
@@ -57,10 +58,13 @@ pub struct Gpu {
     drawing_area_bottom: u16,
     /// Drawing offset in the framebuffer
     drawing_offset: (i16, i16),
+
+    /// Renderer command channel
+    renderer_tx: crossbeam_channel::Sender<GpuCommand>,
 }
 
 impl Gpu {
-    pub fn new() -> Gpu {
+    pub fn new(renderer_tx: crossbeam_channel::Sender<GpuCommand>) -> Gpu {
         Gpu {
             renderer: None,
 
@@ -73,11 +77,13 @@ impl Gpu {
             drawing_area_right: 0,
             drawing_area_bottom: 0,
             drawing_offset: (0, 0),
+
+            renderer_tx,
         }
     }
 
     pub fn load_renderer(&mut self) {
-        self.renderer = Some(Renderer::new());
+        // self.renderer = Some(Renderer::new());
     }
 }
 
@@ -130,7 +136,7 @@ impl Gpu {
         self.gpustat.set_irq(true);
         // self.bus.upgrade().unwrap().borrow().send_irq(0);
 
-        println!("VSync IRQ");
+        // println!("VSync IRQ");
         if let Some(renderer) = &mut self.renderer {
             renderer.poll_events();
             renderer.draw();
@@ -290,16 +296,16 @@ impl Gpu {
 
     // +2
     fn gp0_02_fill_rectangle(&mut self) {
-        let color_bgr24 = self.buffer[0] & 0xff_ffff;
-        let top_left_x = self.buffer[1] & 0xffff;
-        let top_left_y = self.buffer[1] >> 16;
-        let width = self.buffer[2] & 0xffff;
-        let height = self.buffer[2] >> 16;
+        // let color_bgr24 = self.buffer[0] & 0xff_ffff;
+        // let top_left_x = self.buffer[1] & 0xffff;
+        // let top_left_y = self.buffer[1] >> 16;
+        // let width = self.buffer[2] & 0xffff;
+        // let height = self.buffer[2] >> 16;
 
-        println!(
-            "[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
-            top_left_x, top_left_y, width, height, color_bgr24
-        );
+        // println!(
+        //     "[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
+        //     top_left_x, top_left_y, width, height, color_bgr24
+        // );
     }
 
     fn gp0_03_nop2(&mut self) {
@@ -312,257 +318,241 @@ impl Gpu {
 
     // +3
     fn gp0_20_mono_triangle(&mut self) {
-        println!("[GPU] GP0(20): mono_triangle");
+        // BIOS
 
         let vertices = [
-            Position::parse(self.buffer[1]),
-            Position::parse(self.buffer[2]),
-            Position::parse(self.buffer[3]),
+            PsxVertex::from_position_and_color(self.buffer[1], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[2], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[3], self.buffer[0]),
         ];
 
-        let colors = [
-            Color::parse(self.buffer[0]),
-            Color::parse(self.buffer[0]),
-            Color::parse(self.buffer[0]),
-        ];
-
-        println!("Triangle at {:?} with colors {:?}", vertices, colors);
-
-        if let Some(renderer) = &mut self.renderer {
-            renderer.push_triangle(vertices, colors);
-        }
+        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices }).unwrap();
     }
 
     // 21 garbage
 
     // +3
     fn gp0_22_mono_triangle_alpha(&mut self) {
-        // println!("[GPU] GP0(22): mono_triangle_alpha");
+        println!("[GPU] GP0(22): mono_triangle_alpha");
     }
 
     // 23 garbage
 
     // +6
     fn gp0_24_triangle_texture_blended(&mut self) {
-        // println!("[GPU] GP0(24): triangle_texture_blended");
+        println!("[GPU] GP0(24): triangle_texture_blended");
     }
 
     // +6
     fn gp0_25_triangle_texture_raw(&mut self) {
-        // println!("[GPU] GP0(25): triangle_texture_raw");
+        println!("[GPU] GP0(25): triangle_texture_raw");
     }
 
     // +6
     fn gp0_26_triangle_alpha_texture_blended(&mut self) {
-        // println!("[GPU] GP0(26): triangle_alpha_texture_blended");
+        println!("[GPU] GP0(26): triangle_alpha_texture_blended");
     }
 
     // +6
     fn gp0_27_triangle_alpha_texture_raw(&mut self) {
-        // println!("[GPU] GP0(27): triangle_alpha_texture_raw");
+        println!("[GPU] GP0(27): triangle_alpha_texture_raw");
     }
 
     // +4
     fn gp0_28_mono_square(&mut self) {
+        // BIOS
         // println!("[GPU] GP0(28): mono_square");
 
-        let positions = [
-            Position::parse(self.buffer[1]),
-            Position::parse(self.buffer[2]),
-            Position::parse(self.buffer[3]),
-            Position::parse(self.buffer[4]),
+        let triangle1 = [
+            PsxVertex::from_position_and_color(self.buffer[1], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[2], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[3], self.buffer[0]),
         ];
 
-        // Only one color repeated 4 times
-        let colors = [Color::parse(self.buffer[0]); 4];
+        let triangle2 = [
+            PsxVertex::from_position_and_color(self.buffer[2], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[3], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[4], self.buffer[0]),
+        ];
 
-        if let Some(renderer) = &mut self.renderer {
-            renderer.push_quad(positions, colors);
-        }
+        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle1 }).unwrap();
+        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle2 }).unwrap();
     }
 
     // 29 garbage
 
     // +4
     fn gp0_2a_mono_square_alpha(&mut self) {
-        // println!("[GPU] GP0(2a): mono_square_alpha");
+        println!("[GPU] GP0(2a): mono_square_alpha");
     }
 
     // 2b garbage
 
     // +8
     fn gp0_2c_square_texture_blended(&mut self) {
+        // BIOS TODO
         // println!("[GPU] GP0(2c): square_texture_blended");
     }
 
     // +8
     fn gp0_2d_square_texture_raw(&mut self) {
-        // println!("[GPU] GP0(2d): square_texture_raw");
+        println!("[GPU] GP0(2d): square_texture_raw");
     }
 
     // +8
     fn gp0_2e_square_alpha_texture_blended(&mut self) {
-        // println!("[GPU] GP0(2e): square_alpha_texture_blended");
+        println!("[GPU] GP0(2e): square_alpha_texture_blended");
     }
 
     // +8
     fn gp0_2f_square_alpha_texture_raw(&mut self) {
-        // println!("[GPU] GP0(2f): square_alpha_texture_raw");
+        println!("[GPU] GP0(2f): square_alpha_texture_raw");
     }
 
     // +5
     fn gp0_30_shaded_triangle(&mut self) {
+        // BIOS
         // println!("[GPU] GP0(30): shaded_triangle");
 
         let vertices = [
-            Position::parse(self.buffer[1]),
-            Position::parse(self.buffer[3]),
-            Position::parse(self.buffer[5]),
+            PsxVertex::from_position_and_color(self.buffer[1], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[3], self.buffer[2]),
+            PsxVertex::from_position_and_color(self.buffer[5], self.buffer[4]),
         ];
 
-        let colors = [
-            Color::parse(self.buffer[0]),
-            Color::parse(self.buffer[2]),
-            Color::parse(self.buffer[4]),
-        ];
-
-        if let Some(renderer) = &mut self.renderer {
-            renderer.push_triangle(vertices, colors);
-        }
+        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices }).unwrap();
     }
 
     // 31 garbage
 
     // +5
     fn gp0_32_shaded_triangle_alpha(&mut self) {
-        // println!("[GPU] GP0(32): shaded_triangle_alpha");
+        println!("[GPU] GP0(32): shaded_triangle_alpha");
     }
 
     // 33 garbage
 
     // +8
     fn gp0_34_shaded_textured_triangle_blend(&mut self) {
-        // println!("[GPU] GP0(34): shaded_textured_triangle_blend");
+        println!("[GPU] GP0(34): shaded_textured_triangle_blend");
     }
 
     // 35 garbage
 
     // +8
     fn gp0_36_shaded_textured_triangle_alpha_blend(&mut self) {
-        // println!("[GPU] GP0(36): shaded_textured_triangle_alpha_blend");
+        println!("[GPU] GP0(36): shaded_textured_triangle_alpha_blend");
     }
 
     // 37 garbage
 
     // +7
     fn gp0_38_shaded_square(&mut self) {
-        // println!("[GPU] GP0(38): shaded_square");
+        // BIOS
+        // println!("[GPU] GP0(38): shaded_square, {:?}", self.buffer);
 
-        let positions = [
-            Position::parse(self.buffer[1]),
-            Position::parse(self.buffer[3]),
-            Position::parse(self.buffer[5]),
-            Position::parse(self.buffer[7]),
+        let triangle1 = [
+            PsxVertex::from_position_and_color(self.buffer[1], self.buffer[0]),
+            PsxVertex::from_position_and_color(self.buffer[3], self.buffer[2]),
+            PsxVertex::from_position_and_color(self.buffer[5], self.buffer[4]),
         ];
 
-        let colors = [
-            Color::parse(self.buffer[0]),
-            Color::parse(self.buffer[2]),
-            Color::parse(self.buffer[4]),
-            Color::parse(self.buffer[6]),
+        let triangle2 = [
+            PsxVertex::from_position_and_color(self.buffer[3], self.buffer[2]),
+            PsxVertex::from_position_and_color(self.buffer[5], self.buffer[4]),
+            PsxVertex::from_position_and_color(self.buffer[7], self.buffer[6]),
         ];
 
-        if let Some(renderer) = &mut self.renderer {
-            renderer.push_quad(positions, colors);
-        }
+        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle1 }).unwrap();
+        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle2 }).unwrap();
     }
 
     // 39 garbage
 
     // +7
     fn gp0_3a_shaded_square_alpha(&mut self) {
-        // println!("[GPU] GP0(3a): shaded_square_alpha");
+        println!("[GPU] GP0(3a): shaded_square_alpha");
     }
 
     // 3b garbage
 
     // +11
     fn gp0_3c_shaded_textured_square_blend(&mut self) {
-        // println!("[GPU] GP0(3c): shaded_textured_square_blend");
+        println!("[GPU] GP0(3c): shaded_textured_square_blend");
     }
 
     // 3d garbage
 
     // +11
     fn gp0_3e_shaded_textured_square_alpha_blend(&mut self) {
-        // println!("[GPU] GP0(3e): shaded_textured_square_alpha_blend");
+        println!("[GPU] GP0(3e): shaded_textured_square_alpha_blend");
     }
 
     // 3f garbage
 
     // +infinite until 0x5555_5555
     fn gp0_40_mono_line(&mut self) {
-        // println!("[GPU] GP0(40): mono_line");
+        println!("[GPU] GP0(40): mono_line");
     }
 
     // +infinite until 0x5555_5555
     fn gp0_42_mono_line_alpha(&mut self) {
-        // println!("[GPU] GP0(42): mono_line_alpha");
+        println!("[GPU] GP0(42): mono_line_alpha");
     }
 
     // +infinite until 0x5555_5555
     fn gp0_48_mono_polyline(&mut self) {
-        // println!("[GPU] GP0(48): mono_polyline");
+        println!("[GPU] GP0(48): mono_polyline");
     }
 
     // +infinite until 0x5555_5555
     fn gp0_4a_mono_polyline_alpha(&mut self) {
-        // println!("[GPU] GP0(4a): mono_polyline_alpha");
+        println!("[GPU] GP0(4a): mono_polyline_alpha");
     }
 
     // +2*infinite until 0x5555_5555
     fn gp0_50_shaded_line(&mut self) {
-        // println!("[GPU] GP0(50): shaded_line");
+        println!("[GPU] GP0(50): shaded_line");
     }
 
     // +2*infinite until 0x5555_5555
     fn gp0_52_shaded_line_alpha(&mut self) {
-        // println!("[GPU] GP0(52): shaded_line_alpha");
+        println!("[GPU] GP0(52): shaded_line_alpha");
     }
 
     // +2*infinite until 0x5555_5555
     fn gp0_58_shaded_polyline(&mut self) {
-        // println!("[GPU] GP0(58): shaded_polyline");
+        println!("[GPU] GP0(58): shaded_polyline");
     }
 
     // +2*infinite until 0x5555_5555
     fn gp0_5a_shaded_polyline_alpha(&mut self) {
-        // println!("[GPU] GP0(5a): shaded_polyline_alpha");
+        println!("[GPU] GP0(5a): shaded_polyline_alpha");
     }
 
     // +2
     fn gp0_60_mono_rectangle(&mut self) {
-        // println!("[GPU] GP0(60): mono_rectangle");
+        println!("[GPU] GP0(60): mono_rectangle");
     }
 
     // +2
     fn gp0_62_mono_rectangle_alpha(&mut self) {
-        // println!("[GPU] GP0(62): mono_rectangle_alpha");
+        println!("[GPU] GP0(62): mono_rectangle_alpha");
     }
 
     // +1
     fn gp0_68_mono_rectangle_dot(&mut self) {
-        // println!("[GPU] GP0(68): mono_rectangle_dot");
+        println!("[GPU] GP0(68): mono_rectangle_dot");
     }
 
     // +1
     fn gp0_6a_mono_rectangle_dot_alpha(&mut self) {
-        // println!("[GPU] GP0(6a): mono_rectangle_dot_alpha");
+        println!("[GPU] GP0(6a): mono_rectangle_dot_alpha");
     }
 
     // +1
     fn gp0_70_mono_rectangle_8(&mut self) {
-        // println!("[GPU] GP0(70): mono_rectangle_8");
+        println!("[GPU] GP0(70): mono_rectangle_8");
     }
 
     // +1
@@ -582,7 +572,8 @@ impl Gpu {
 
     // +3
     fn gp0_64_textured_rectangle_blend(&mut self) {
-        println!("[GPU] GP0(64): textured_rectangle_blend");
+        // BIOS TODO
+        // println!("[GPU] GP0(64): textured_rectangle_blend");
 
         let top_left = Position::parse(self.buffer[1]);
 
@@ -639,51 +630,53 @@ impl Gpu {
 
     // +2
     fn gp0_74_textured_rectangle_8_blend(&mut self) {
-        // println!("[GPU] GP0(74): textured_rectangle_8_blend");
+        println!("[GPU] GP0(74): textured_rectangle_8_blend");
     }
 
     // +2
     fn gp0_75_textured_rectangle_8_raw(&mut self) {
-        // println!("[GPU] GP0(75): textured_rectangle_8_raw");
+        println!("[GPU] GP0(75): textured_rectangle_8_raw");
     }
 
     // +2
     fn gp0_76_textured_rectangle_8_alpha_blend(&mut self) {
-        // println!("[GPU] GP0(76): textured_rectangle_8_alpha_blend");
+        println!("[GPU] GP0(76): textured_rectangle_8_alpha_blend");
     }
 
     // +2
     fn gp0_77_textured_rectangle_8_alpha_raw(&mut self) {
-        // println!("[GPU] GP0(77): textured_rectangle_8_alpha_raw");
+        println!("[GPU] GP0(77): textured_rectangle_8_alpha_raw");
     }
 
     // +2
     fn gp0_7c_textured_rectangle_16_blend(&mut self) {
-        // println!("[GPU] GP0(7c): textured_rectangle_16_blend");
+        println!("[GPU] GP0(7c): textured_rectangle_16_blend");
     }
 
     // +2
     fn gp0_7d_textured_rectangle_16_raw(&mut self) {
-        // println!("[GPU] GP0(7d): textured_rectangle_16_raw");
+        println!("[GPU] GP0(7d): textured_rectangle_16_raw");
     }
 
     // +2
     fn gp0_7e_textured_rectangle_16_alpha_blend(&mut self) {
-        // println!("[GPU] GP0(7e): textured_rectangle_16_alpha_blend");
+        println!("[GPU] GP0(7e): textured_rectangle_16_alpha_blend");
     }
 
     // +2
     fn gp0_7f_textured_rectangle_16_alpha_raw(&mut self) {
-        // println!("[GPU] GP0(7f): textured_rectangle_16_alpha_raw");
+        println!("[GPU] GP0(7f): textured_rectangle_16_alpha_raw");
     }
 
     // +3
     fn gp0_80_copy_vram_vram(&mut self) {
+        // BIOS TODO
         // println!("[GPU] GP0(80): copy_vram_vram");
     }
 
     // +2 +(width * height)
     fn gp0_a0_copy_cpu_vram(&mut self) {
+        // BIOS TODO
         // println!("[GPU] GP0(a0): copy_cpu_vram");
         if self.buffer.len() == 3 {
             // Check 3rd word, multiply high and low halfword
@@ -729,10 +722,12 @@ impl Gpu {
     }
 
     fn gp0_e1_draw_mode(&mut self) {
+        // BIOS TODO
         // println!("[GPU] GP0(e1): draw_mode");
     }
 
     fn gp0_e2_texture_window(&mut self) {
+        // BIOS TODO
         // println!("[GPU] GP0(e2): texture_window");
     }
 
@@ -790,6 +785,7 @@ impl Gpu {
     }
 
     fn gp0_e6_mask_bit(&mut self) {
+        // BIOS TODO
         // println!("[GPU] GP0(e6): mask_bit");
     }
 

@@ -7,24 +7,20 @@ edition = "2021"
 
 [dependencies]
 logger = { path = "logger" }
+gui = { path = "gui" }
 
 bitfield = "0.19.0"
 byteorder = "1.5.0"
 ctrlc = "3.4.6"
+env_logger = "0.11.8"
 gl = "0.14.0"
 lazy_static = "1.4.0"
+log = "0.4.27"
+pollster = "0.4.0"
 ringbuffer = "0.8.2"
 rustyline = "9.0.0"
 sdl3 = { git = "https://github.com/revmischa/sdl3-rs" } 
-
-
-winit = "0.29"
-wgpu = "0.19" # Check for the latest version
-env_logger = "0.11"
-log = "0.4"
-pollster = "0.3"
-bytemuck = { version = "1.15", features = ["derive"] }
-cgmath = "0.18" # For potential matrix operations if needed, though not strictly for this example
+crossbeam-channel = "0.5"
 
 
 [profile.dev]
@@ -38,7 +34,3 @@ serde_json = "1.0"
 [[bin]]
 name = "psx"
 path = "src/main.rs"
-
-[[bin]]
-name = "psx-gui"
-path = "gui/main.rs"

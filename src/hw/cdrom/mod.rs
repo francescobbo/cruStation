@@ -85,7 +85,7 @@ impl Cdrom {
     }
 
     pub fn read<const S: u32>(&mut self, addr: u32) -> (u32, CpuCommand) {
-        print!("[CDR] Read {:04x}: ", addr);
+        // println!("[CDR] Read {:04x}: ", addr);
 
         let mut command = CpuCommand::Noop;
 
@@ -137,12 +137,12 @@ impl Cdrom {
             3 => {
                 match self.controller_status.index() & 1 {
                     0 => {
-                        println!("[CDR] Read Int enable");
+                        // println!("[CDR] Read Int enable");
                         /* fixed bits | writeable bits */
                         0xe0 | 0x1f
                     }
                     1 => {
-                        println!("[CDR] Read Int flag");
+                        // println!("[CDR] Read Int flag");
                         if let Some(int) = self.pending_irqs.front() {
                             // TODO only set this after the IRQ has actually been delivered
                             0xe0 | ((int.number as u8) & 7)
@@ -161,10 +161,10 @@ impl Cdrom {
     }
 
     pub fn write<const S: u32>(&mut self, addr: u32, value: u32) -> CpuCommand {
-        println!(
-            "[CDR] Write to reg {:04x} {:08x} of size {}",
-            addr, value, S
-        );
+        // println!(
+        //     "[CDR] Write to reg {:04x} {:08x} of size {}",
+        //     addr, value, S
+        // );
 
         if S != 1 {
             // println!("[CDR] Invalid write");
@@ -225,11 +225,11 @@ impl Cdrom {
                 match self.controller_status.index() {
                     0 => {
                         // Request Register
-                        println!("[CDR] Wrote request {:02x}", value);
+                        // println!("[CDR] Wrote request {:02x}", value);
                     }
                     1 => {
                         // Interrupt Flag Register
-                        println!("[CDR] Wrote interrupt flag {:02x}", value);
+                        // println!("[CDR] Wrote interrupt flag {:02x}", value);
 
                         if value & 0x40 != 0 {
                             self.parameters.clear();
@@ -276,18 +276,18 @@ impl Cdrom {
                 self.enqueue_interrupt(3, &[self.stat.0])
             }
             0x02 => {
-                println!("ReadN");
+                // println!("ReadN");
                 self.enqueue_interrupt(3, &[self.stat.0])
             }
             0x06 => {
-                println!("ReadN");
+                // println!("ReadN");
                 self.enqueue_interrupt(3, &[0x20]);
                 self.enqueue_interrupt(1, &[]);
                 self.enqueue_interrupt(1, &[]);
                 self.enqueue_interrupt(1, &[])
             }
             0x09 => {
-                println!("Pause");
+                // println!("Pause");
                 self.enqueue_interrupt(3, &[self.stat.0]);
                 self.enqueue_interrupt(2, &[self.stat.0])
             }
@@ -338,7 +338,7 @@ impl Cdrom {
     pub fn next_response(&mut self) -> CpuCommand {
         // let response = self.pending_irqs.get(0).unwrap();
 
-        println!("Deliver CDROM response");
+        // println!("Deliver CDROM response");
         CpuCommand::Irq(2)
     }
 }

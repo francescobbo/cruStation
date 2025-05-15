@@ -50,7 +50,7 @@ impl JoypadMemorycard {
 
 impl BusDevice for JoypadMemorycard {
     fn read<const S: u32>(&mut self, addr: u32) -> u32 {
-        println!("[JOY] Read from reg {:04x}", addr);
+        // println!("[JOY] Read from reg {:04x}", addr);
         match addr {
             0x00 => self.rx_data as u32,
             0x04 => 7,
@@ -60,7 +60,7 @@ impl BusDevice for JoypadMemorycard {
     }
 
     fn write<const S: u32>(&mut self, addr: u32, value: u32) {
-        println!("[JOY] Write to reg {:04x} {:08x}", addr, value);
+        // println!("[JOY] Write to reg {:04x} {:08x}", addr, value);
 
         // Writes to JOY are truncated to 16 bits
         let value = value as u16;

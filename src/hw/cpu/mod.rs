@@ -11,6 +11,7 @@ mod scratchpad;
 
 use std::{collections::VecDeque, fs::File};
 
+use crustationgui::GpuCommand;
 use crustationlogger::*;
 
 use biu::BIUCacheControl;
@@ -61,10 +62,10 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new() -> Cpu {
+    pub fn new(renderer_tx: crossbeam_channel::Sender<GpuCommand>) -> Cpu {
         Cpu {
             logger: Logger::new("CPU", Level::Info),
-            bus: Bus::new(),
+            bus: Bus::new(renderer_tx),
 
             pc: 0xbfc0_0000,
             regs: [0; 33],

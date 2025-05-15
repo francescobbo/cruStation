@@ -3,8 +3,7 @@ use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use crate::vertex_data::{
-    TriangleVertex, ScreenQuadVertex, TRIANGLE_VERTICES, SCREEN_QUAD_VERTICES,
-    SCREEN_TEXTURE_WIDTH, SCREEN_TEXTURE_HEIGHT, SCREEN_TEXTURE_FORMAT,
+    self, SCREEN_QUAD_VERTICES, SCREEN_TEXTURE_FORMAT, SCREEN_TEXTURE_HEIGHT, SCREEN_TEXTURE_WIDTH, TRIANGLE_VERTICES
 };
 use crate::texture::TextureRenderTarget;
 use crate::render_pipelines;
@@ -261,6 +260,23 @@ impl State {
                 timestamp_writes: None, // No GPU timestamps.
                 occlusion_query_set: None, // No occlusion queries.
             });
+
+            // The viewport remaps Normalized Device Coordinates (NDC, -1 to 1)
+            // to a specific pixel rectangle on the render target. Here, NDC
+            // will map to the top-left 640x480 area of our 1024x512 texture.
+            render_pass_to_texture.set_viewport(
+                0.0, 0.0,
+                vertex_data::VISIBLE_REGION_WIDTH as f32, vertex_data::VISIBLE_REGION_HEIGHT as f32,
+                0.0, 1.0, // Z range
+            );
+
+            // The scissor rectangle clips all rendering to this specified pixel
+            // rectangle. Primitives (or parts of them) outside this rect are
+            // discarded.
+            render_pass_to_texture.set_scissor_rect(
+                0, 0,
+                vertex_data::VISIBLE_REGION_WIDTH, vertex_data::VISIBLE_REGION_HEIGHT,
+            );
 
             // Set the pipeline for this pass.
             render_pass_to_texture.set_pipeline(&self.triangle_render_pipeline);

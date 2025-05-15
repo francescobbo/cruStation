@@ -219,7 +219,7 @@ impl Renderer {
 
         // Update the uniform value
         unsafe {
-            println!("Setting offset to {} {}", x, y);
+            // println!("Setting offset to {} {}", x, y);
             gl::Uniform2i(self.uniform_offset, x as GLint, y as GLint);
         }
     }
@@ -229,6 +229,14 @@ impl Renderer {
     pub fn set_drawing_area(&mut self, left: u16, top: u16, right: u16, bottom: u16) {
         // Render any pending primitives
         self.draw();
+
+        // println!(
+        //     "Setting drawing area: [{}x{}->{}x{}]",
+        //     left,
+        //     top,
+        //     right,
+        //     bottom
+        // );
 
         let fb_x_res = self.fb_x_res as GLint;
         let fb_y_res = self.fb_y_res as GLint;
@@ -259,10 +267,10 @@ impl Renderer {
                 gl::Scissor(0, 0, 0, 0);
             }
         } else {
-            println!(
-                "Setting drawing area: {}x{} [{}x{}->{}x{}]",
-                width, height, left, top, right, bottom
-            );
+            // println!(
+            //     "Setting drawing area: {}x{} [{}x{}->{}x{}]",
+            //     width, height, left, top, right, bottom
+            // );
             unsafe {
                 gl::Scissor(left, bottom, width, height);
             }
@@ -293,14 +301,14 @@ impl Renderer {
 }
 
 #[derive(Copy, Clone, Debug, Default)]
-pub struct Position(pub GLshort, pub GLshort);
+pub struct Position(pub i16, pub i16);
 
 impl Position {
     pub fn parse(value: u32) -> Position {
         let x = value & 0xfff;
-        let y = value >> 16;
+        let y = value >> 16 & 0xfff;
 
-        Position(x as GLshort, y as GLshort)
+        Position(x as i16, y as i16)
     }
 }
 

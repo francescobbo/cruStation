@@ -1,3 +1,5 @@
+use crustationgui::GpuCommand;
+
 use crate::hw::vec::ByteSerialized;
 
 use std::fs::File;
@@ -65,7 +67,7 @@ impl PartialOrd for PsxEvent {
 }
 
 impl Bus {
-    pub fn new() -> Bus {
+    pub fn new(renderer_tx: crossbeam_channel::Sender<GpuCommand>) -> Bus {
         let mut bus = Bus {
             total_cycles: 0,
 
@@ -76,7 +78,7 @@ impl Bus {
             cdrom: Cdrom::new(),
             dma: Dma::new(),
             spu: Spu::new(),
-            gpu: Gpu::new(),
+            gpu: Gpu::new(renderer_tx),
             timers: Timers::new(),
             joy_mc: JoypadMemorycard::new(),
 
