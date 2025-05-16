@@ -24,8 +24,8 @@ impl EmuGui {
         let window = Arc::new(WindowBuilder::new()
             .with_title("PS1 Emulator")
             .with_inner_size(LogicalSize::new(
-                crate::vertex_data::DEFAULT_DISPLAY_WIDTH,
-                crate::vertex_data::DEFAULT_DISPLAY_HEIGHT
+                1024, //crate::vertex_data::DEFAULT_DISPLAY_WIDTH,
+                512, //crate::vertex_data::DEFAULT_DISPLAY_HEIGHT
             ))
             .build(&event_loop)
             .unwrap());

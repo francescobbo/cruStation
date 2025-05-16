@@ -49,3 +49,14 @@ fn load_bgr555_texel_from_uv(tex: texture_2d<u32>, uv_coords: vec2<f32>) -> u32 
     // Load the texel value. For R16Uint, this returns vec4<u32> with the data in .r
     return textureLoad(tex, clamped_coords, 0u).r; // LOD 0u
 }
+
+// Helper to load a BGR555 texel using INTEGER VRAM word coordinates
+fn load_bgr555_from_vram_coords(tex: texture_2d<u32>, vram_coords: vec2<i32>) -> u32 {
+    let texture_dims_words = textureDimensions(tex, 0u);
+    let clamped_coords = clamp(
+        vram_coords,
+        vec2<i32>(0),
+        vec2<i32>(texture_dims_words) - vec2<i32>(1)
+    );
+    return textureLoad(tex, clamped_coords, 0u).r;
+}

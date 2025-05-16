@@ -398,9 +398,7 @@ impl Gpu {
 
     // +8
     fn gp0_2c_square_texture_blended(&mut self) {
-        // BIOS TODO
-        println!("[GPU] GP0(2c): square_texture_blended {}", self.buffer.len());
-
+        // BIOS
         let mod_r = (self.buffer[0] & 0x0000FF) as u8;
         let mod_g = ((self.buffer[0] >> 8) & 0x0000FF) as u8;
         let mod_b = ((self.buffer[0] >> 16) & 0x0000FF) as u8;
@@ -753,7 +751,7 @@ impl Gpu {
             let height = (size >> 16) as u16;
 
             let x = (self.buffer[1] & 0x3ff) as u16;
-            let y = ((self.buffer[1] >> 10) & 0x1ff) as u16;
+            let y = ((self.buffer[1] >> 16) & 0x1ff) as u16;
 
             // Transform the sequence of u32 into a sequence of u16
             let halfwords = self.buffer[3..]
@@ -796,12 +794,12 @@ impl Gpu {
 
     fn gp0_e1_draw_mode(&mut self) {
         // BIOS TODO
-        println!("[GPU] GP0(e1): draw_mode");
+        //println!("[GPU] GP0(e1): draw_mode {:08x}", self.buffer[0]);
     }
 
     fn gp0_e2_texture_window(&mut self) {
         // BIOS TODO
-        println!("[GPU] GP0(e2): texture_window");
+        // println!("[GPU] GP0(e2): texture_window");
     }
 
     fn gp0_e3_drawing_area_top_left(&mut self) {
@@ -859,7 +857,7 @@ impl Gpu {
 
     fn gp0_e6_mask_bit(&mut self) {
         // BIOS TODO
-        println!("[GPU] GP0(e6): mask_bit");
+        // println!("[GPU] GP0(e6): mask_bit, mask: {:08x}", self.buffer[0] & 3);
     }
 
     fn process_gp1(&mut self, command: u32) {

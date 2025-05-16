@@ -64,7 +64,10 @@ impl Renderer {
     pub async fn new(window: Arc<Window>) -> (Arc<Mutex<Self>>, crossbeam_channel::Sender<GpuCommand>) {
         let window_size = window.inner_size();
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..wgpu::InstanceDescriptor::default()
+        });
         let surface = instance.create_surface(window.clone()).unwrap();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -155,8 +158,13 @@ impl Renderer {
         let textured_rect_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Textured Rect Uniform Buffer"),
             contents: bytemuck::cast_slice(&[TexturedRectUniforms {
-                modulation_color: [0.5, 0.5, 0.5], // Default (0x808080 maps to 0.5 intensity roughly)
-                _padding: 0.0,
+                modulation_color: [0.5, 0.5, 0.5],
+                texture_mode: 0,
+                clut_vram_base_x: 0,
+                clut_vram_base_y: 0,
+                tex_page_base_x_words: 0,
+                tex_page_base_y_words: 0,
+                _padding: [0; 0],
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -430,6 +438,18 @@ impl Renderer {
                     return;
                 }
 
+                if w == 16 && h == 1 {
+                    // This is probably a CLUT
+                    print!("CLUT write detected: {}x{} at ({},{}): ", w, h, x, y);
+                    for i in 0..w {
+                        let clut_color = pixel_data[i as usize];
+                        print!("({:04x}), ", clut_color);
+                    }
+                    println!();
+                } else {
+                    println!("VRAM write detected: {}x{} at ({},{})", w, h, x, y);
+                }
+
                 if w > 0 && h > 0 {
                     self.queue.write_texture(
                         wgpu::TexelCopyTextureInfo {
@@ -463,9 +483,8 @@ impl Renderer {
             }
             GpuCommand::DrawTexturedQuad {
                 vertices: [v0, v1, v2, v3],
-                uvs: [uv0, mut uv1, uv2, mut uv3],
-                clut_attr: _clut_attr, // Ignoring CLUT for now
-                texpage_attr,
+                uvs: [uv0, uv1, uv2, uv3],
+                clut_attr, texpage_attr,
                 modulation_color,
             } => {
                 textured_wgpu_vertices_batch.clear();
@@ -490,31 +509,29 @@ impl Renderer {
                     },
                 );
 
-                // --- 1. Decode TexPage Attributes (Simplified for 15-bit direct) ---
+                let clut_vx = ((clut_attr & 0x3F) * 16) as u32; // X in VRAM words (pixels / 16 wide)
+                let clut_vy = ((clut_attr >> 6) & 0x1FF) as u32; // Y in VRAM words (scanlines)
+
+                // Decode TexPage Attributes (Simplified for 15-bit direct) ---
                 // TX (bits 0-3): Texture Page X Base (N * 64 pixels)
                 let tex_page_x_base = ((texpage_attr >> 0) & 0xF) as u32 * 64;
                 // TY (bit 4): Texture Page Y Base (N * 256 pixels)
                 let tex_page_y_base = ((texpage_attr >> 4) & 0x1) as u32 * 256;
-                // TP (bits 7-8): Texture Color Mode. We are *assuming* 15-bit direct for now.
+                // TP (bits 7-8): Texture Color Mode.
+                let tp_mode = ((texpage_attr >> 7) & 0x3) as u32;
+                
                 // let _texture_color_mode = (texpage_attr >> 7) & 0x3;
                 // log::debug!("TexPage Attr: {:#06x} -> Base: ({}, {}), Mode: {}", texpage_attr, tex_page_x_base, tex_page_y_base, _texture_color_mode);
 
-                // --- 2. Prepare Vertices (Position and UVs) ---
-                // PS1 quads are often V0,V1,V2 and V1,V3,V2 or V0,V1,V3 and V0,V2,V3.
-                // Let's assume standard quad: V0,V1,V2,V3 = TL, TR, BL, BR
-                // Triangle 1: V0, V2, V1 (TL, BL, TR)
-                // Triangle 2: V1, V2, V3 (TR, BL, BR)
-                // This forms the quad correctly with CCW winding if V2 is BL and V1 is TR.
-                // Your data: V0(TL), V1(TR), V2(BL), V3(BR) based on coordinates.
-                // Tri 1: v0, v2, v1
-                // Tri 2: v1, v2, v3
-
+                // Prepare Vertices (Position and UVs) ---
                 let psx_quad_vertices = [
                     (&v0, &uv0), (&v2, &uv2), (&v1, &uv1), // Triangle 1 (TL, BL, TR)
                     (&v1, &uv1), (&v2, &uv2), (&v3, &uv3), // Triangle 2 (TR, BL, BR)
                 ];
 
-                
+                print!("Drawing textured quad with TL: {:?} and uvs: {:?}. ", v0, [uv0, uv1, uv2, uv3]);
+                println!("TPX: {} TY: {} MODE: {} CLUT: ({}, {}) ", tex_page_x_base, tex_page_y_base, tp_mode, clut_vx, clut_vy);
+
                 // Drawing area for viewport setup
                 let da_x1 = self.drawing_area_x1;
                 let da_y1 = self.drawing_area_y1;
@@ -531,7 +548,7 @@ impl Renderer {
                     );
 
                     // Calculate absolute UV in VRAM, then normalize for shader (0.0-1.0)
-                    let abs_u_vram = tex_page_x_base as f32 + psx_uv.u as f32;
+                    let abs_u_vram = tex_page_x_base as f32 + (psx_uv.u as f32) / 4.0;
                     let abs_v_vram = tex_page_y_base as f32 + psx_uv.v as f32;
 
                     let norm_u = abs_u_vram / VRAM_WIDTH as f32;
@@ -543,16 +560,24 @@ impl Renderer {
                     });
                 }
 
-                // --- 3. Prepare Uniforms ---
+                // Prepare Uniforms ---
                 // Modulation color: PS1's 0x80 (128) often means "1.0x multiplier".
                 // So, we normalize R,G,B (0-255) to effectively 0.0-2.0 range for multiplication.
                 let mod_r_factor = modulation_color.r as f32 / 128.0;
                 let mod_g_factor = modulation_color.g as f32 / 128.0;
                 let mod_b_factor = modulation_color.b as f32 / 128.0;
 
+                let tex_page_x_base_words_val = ((texpage_attr >> 0) & 0xF) * 64; // This is VRAM X word offset of page
+                let tex_page_y_base_words_val = ((texpage_attr >> 4) & 0x1) * 256; // VRAM Y word offset of page
+
                 let uniforms = TexturedRectUniforms {
                     modulation_color: [mod_r_factor, mod_g_factor, mod_b_factor],
-                    _padding: 0.0,
+                    texture_mode: tp_mode,
+                    clut_vram_base_x: clut_vx,
+                    clut_vram_base_y: clut_vy,
+                    tex_page_base_x_words: tex_page_x_base_words_val as u32,
+                    tex_page_base_y_words: tex_page_y_base_words_val as u32,
+                    _padding: [0; 0]
                 };
                 self.queue.write_buffer(&self.textured_rect_uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 

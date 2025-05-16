@@ -147,7 +147,16 @@ pub fn create_vram_bind_group_resources(
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TexturedRectUniforms {
     pub modulation_color: [f32; 3], // R, G, B (normalized 0.0-1.0)
-    pub _padding: f32, // WGSL uniform structs require 16-byte alignment for vec3
+    pub texture_mode: u32,          // 0: CLUT4, 1: CLUT8, 2: Direct15bit
+
+    // CLUT VRAM base coordinates (in 16-bit VRAM words)
+    pub clut_vram_base_x: u32,
+    pub clut_vram_base_y: u32,
+
+    pub tex_page_base_x_words: u32,
+    pub tex_page_base_y_words: u32,
+
+    pub _padding: [u32; 0], // Padding to align to 16 bytes
 }
 
 pub fn create_textured_rect_pipeline(
