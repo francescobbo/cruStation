@@ -32,7 +32,7 @@ pub const VRAM_HEIGHT: u32 = 512;
 // Format for our VRAM texture on the host GPU.
 // PS1 VRAM is 16-bit, but Rgba8UnormSrgb is easier for direct viewing and WGPU.
 // We'll need to handle color conversion when processing PS1 commands.
-pub const VRAM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub const VRAM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Uint;
 
 // --- Constants for the Display Area on Screen ---
 // These will be controlled by GpuCommand::SetDisplayArea later.
@@ -83,6 +83,35 @@ impl GpuVertex {
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
+}
+
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct GpuTexturedVertex {
+    pub position: [f32; 2], // Transformed to NDC for the current viewport
+    pub uv: [f32; 2],       // Normalized UV coordinates for sampling VRAM
+}
+
+impl GpuTexturedVertex {
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<GpuTexturedVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute { // position
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute { // uv
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
                 },
             ],
         }

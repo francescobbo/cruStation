@@ -54,8 +54,8 @@ impl TextureRenderTarget {
             address_mode_u: wgpu::AddressMode::ClampToEdge, // How to handle U coords outside [0,1].
             address_mode_v: wgpu::AddressMode::ClampToEdge, // How to handle V coords outside [0,1].
             address_mode_w: wgpu::AddressMode::ClampToEdge, // How to handle W coords outside [0,1].
-            mag_filter: wgpu::FilterMode::Linear,     // Filtering when texture is magnified.
-            min_filter: wgpu::FilterMode::Linear,     // Filtering when texture is minified.
+            mag_filter: wgpu::FilterMode::Nearest,     // Filtering when texture is magnified.
+            min_filter: wgpu::FilterMode::Nearest,     // Filtering when texture is minified.
             mipmap_filter: wgpu::FilterMode::Nearest, // Filtering between mipmap levels (not used here).
             ..Default::default() // Sensible defaults for other options.
         });

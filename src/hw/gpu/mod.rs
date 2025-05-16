@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::rc::Weak;
 
 use bitfield::bitfield;
-use crustationgui::{GpuCommand, PsxVertex};
+use crustationgui::{gpu_command::{PsxPrimitiveVertex, PsxUv}, GpuCommand, PsxColor, PsxVertex};
 use renderer::{Color, Position, Renderer};
 
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
@@ -154,8 +154,6 @@ impl Gpu {
     }
 
     pub fn process_gp0(&mut self, command: u32) {
-        // println!("[GP0] {:08x}", command);
-
         self.buffer.push(command);
 
         if self.remaining_words == 0 {
@@ -401,7 +399,53 @@ impl Gpu {
     // +8
     fn gp0_2c_square_texture_blended(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(2c): square_texture_blended");
+        println!("[GPU] GP0(2c): square_texture_blended {}", self.buffer.len());
+
+        let mod_r = (self.buffer[0] & 0x0000FF) as u8;
+        let mod_g = ((self.buffer[0] >> 8) & 0x0000FF) as u8;
+        let mod_b = ((self.buffer[0] >> 16) & 0x0000FF) as u8;
+
+        let clut_attr = (self.buffer[2] >> 16) as u16; 
+        let texpage_attr = (self.buffer[4] >> 16) as u16;
+
+        let y0 = (self.buffer[1] >> 16) as i16;
+        let x0 = (self.buffer[1] & 0xFFFF) as i16;
+        let u0 = (self.buffer[2] & 0xFF) as u8;
+        let v0 = ((self.buffer[2] >> 8) & 0xFF) as u8;
+
+        let y1 = (self.buffer[3] >> 16) as i16;
+        let x1 = (self.buffer[3] & 0xFFFF) as i16;
+        let u1 = (self.buffer[4] & 0xFF) as u8;
+        let v1 = ((self.buffer[4] >> 8) & 0xFF) as u8;
+
+        let y2 = (self.buffer[5] >> 16) as i16;
+        let x2 = (self.buffer[5] & 0xFFFF) as i16;
+        let u2 = (self.buffer[6] & 0xFF) as u8;
+        let v2 = ((self.buffer[6] >> 8) & 0xFF) as u8;
+
+        let y3 = (self.buffer[7] >> 16) as i16;
+        let x3 = (self.buffer[7] & 0xFFFF) as i16;
+        let u3 = (self.buffer[8] & 0xFF) as u8;
+        let v3 = ((self.buffer[8] >> 8) & 0xFF) as u8;
+
+
+        self.renderer_tx.send(GpuCommand::DrawTexturedQuad {
+            vertices: [
+                PsxPrimitiveVertex { x: x0, y: y0 },
+                PsxPrimitiveVertex { x: x1, y: y1 },
+                PsxPrimitiveVertex { x: x2, y: y2 },
+                PsxPrimitiveVertex { x: x3, y: y3 },
+            ],
+            uvs: [
+                PsxUv { u: u0, v: v0 },
+                PsxUv { u: u1, v: v1 },
+                PsxUv { u: u2, v: v2 },
+                PsxUv { u: u3, v: v3 },
+            ],
+            clut_attr,
+            texpage_attr,
+            modulation_color: PsxColor { r: mod_r, g: mod_g, b: mod_b },
+        }).unwrap();
     }
 
     // +8
@@ -583,7 +627,7 @@ impl Gpu {
     // +3
     fn gp0_64_textured_rectangle_blend(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(64): textured_rectangle_blend");
+        println!("[GPU] GP0(64): textured_rectangle_blend");
 
         let top_left = Position::parse(self.buffer[1]);
 
@@ -681,13 +725,12 @@ impl Gpu {
     // +3
     fn gp0_80_copy_vram_vram(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(80): copy_vram_vram");
+        println!("[GPU] GP0(80): copy_vram_vram");
     }
 
     // +2 +(width * height)
     fn gp0_a0_copy_cpu_vram(&mut self) {
-        // BIOS TODO
-        // println!("[GPU] GP0(a0): copy_cpu_vram");
+        // BIOS
         if self.buffer.len() == 3 {
             // Check 3rd word, multiply high and low halfword
             // that's the number of remaining halfwords to read.
@@ -695,18 +738,38 @@ impl Gpu {
             let size = self.buffer[2] as usize;
             let width = size & 0xffff;
             let height = size >> 16;
-            let size = width * height;
-            // println!("Remaining {}x{} = {}", width, height, size);
-            self.remaining_words = if size % 2 == 0 {
-                size / 2
+            
+            let halfwords = width * height;
+            self.remaining_words = if halfwords % 2 == 0 {
+                halfwords / 2
             } else {
-                size / 2 + 1
+                halfwords / 2 + 1
             };
-        } else {
-            // println!("[GPU] Copy with {} words", self.buffer.len());
         }
 
         if self.remaining_words == 0 {
+            let size = self.buffer[2] as u32;
+            let width = (size & 0xffff) as u16;
+            let height = (size >> 16) as u16;
+
+            let x = (self.buffer[1] & 0x3ff) as u16;
+            let y = ((self.buffer[1] >> 10) & 0x1ff) as u16;
+
+            // Transform the sequence of u32 into a sequence of u16
+            let halfwords = self.buffer[3..]
+                .iter()
+                .flat_map(|&word| [word as u16, (word >> 16) as u16])
+                .collect::<Vec<u16>>();
+
+            // println!(
+            //     "[GPU] GP0(a0): copy_cpu_vram to ({}, {}) with size {}x{} with {} halfwords",
+            //     x, y, width, height, halfwords.len()
+            // );
+
+            self.renderer_tx
+                .send(GpuCommand::WriteToVram { x, y, w: width, h: height, pixel_data: halfwords })
+                .unwrap();
+
             self.buffer.clear();
         }
     }
@@ -733,12 +796,12 @@ impl Gpu {
 
     fn gp0_e1_draw_mode(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(e1): draw_mode");
+        println!("[GPU] GP0(e1): draw_mode");
     }
 
     fn gp0_e2_texture_window(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(e2): texture_window");
+        println!("[GPU] GP0(e2): texture_window");
     }
 
     fn gp0_e3_drawing_area_top_left(&mut self) {
@@ -796,7 +859,7 @@ impl Gpu {
 
     fn gp0_e6_mask_bit(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(e6): mask_bit");
+        println!("[GPU] GP0(e6): mask_bit");
     }
 
     fn process_gp1(&mut self, command: u32) {

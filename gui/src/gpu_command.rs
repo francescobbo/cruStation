@@ -33,6 +33,20 @@ impl PsxVertex {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct PsxUv {
+    pub u: u8, // 0-255 range, relative to texture page origin
+    pub v: u8, // 0-255 range, relative to texture page origin
+}
+
+// For GP0(2Ch), the color is global to the primitive, not per-vertex.
+// Vertices only carry X,Y. UVs are separate.
+#[derive(Copy, Clone, Debug)]
+pub struct PsxPrimitiveVertex {
+    pub x: i16,
+    pub y: i16,
+}
+
 // Enum representing different commands the PS1 GPU can execute.
 // This is a simplified set to begin with.
 #[derive(Clone, Debug)]
@@ -53,20 +67,23 @@ pub enum GpuCommand {
     DrawGouraudTriangle {
         vertices: [PsxVertex; 3],
     },
-    /// Placeholder for future textured quads
+
+    /// Draw textured quads
     DrawTexturedQuad {
-        // vertices: [PsxVertex; 4],
-        // tex_page_info: u16, // Encodes texture page, bit depth, etc.
-        // clut_info: u16,     // Encodes CLUT coordinates if applicable
+        vertices: [PsxPrimitiveVertex; 4],
+        uvs: [PsxUv; 4],
+        clut_attr: u16,
+        texpage_attr: u16,
+        modulation_color: PsxColor,
     },
+
     /// Uploads a block of pixel data to VRAM.
-    /// For simplicity, data is assumed to be in a format easily convertible to the VRAM texture.
     WriteToVram {
-        x: u16,          // Destination X in VRAM
-        y: u16,          // Destination Y in VRAM
-        w: u16,          // Width of the block
-        h: u16,          // Height of the block
-        pixel_data: Vec<u16>, // Example: 16-bit pixel data (e.g., RGB555)
+        x: u16, // Destination X in VRAM
+        y: u16, // Destination Y in VRAM
+        w: u16, // Width of the block
+        h: u16, // Height of the block
+        pixel_data: Vec<u16>,
     },
     /// Defines which part of VRAM is shown on the display.
     SetDisplayArea {

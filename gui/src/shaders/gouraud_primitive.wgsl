@@ -1,7 +1,5 @@
-// Input structure for the vertex shader.
-// Matches `GpuVertex` in Rust.
 struct VertexInput {
-    @location(0) position: vec2<f32>, // Already in viewport's NDC
+    @location(0) position: vec2<f32>,
     @location(1) color: vec3<f32>,
 };
 
@@ -20,6 +18,8 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0); // PS1 often has a 'semi-transparency' bit or blend mode
+fn fs_main(in: VertexOutput) -> @location(0) u32 {
+    let bgr555_color: u32 = pack_rgb_f32_to_bgr555(in.color, false);
+
+    return bgr555_color;
 }
