@@ -214,7 +214,7 @@ impl Renderer {
 
             command_rx,
 
-            vram_debug: false,
+            vram_debug: true,
         };
 
         renderer.update_final_display_viewport(); // Calculate initial viewport
@@ -388,6 +388,8 @@ impl Renderer {
             GpuCommand::DrawGouraudTriangle { vertices: psx_vertices } => {
                 current_wgpu_vertices_batch.clear(); // Prepare for new vertices
 
+                println!("Drawing Gouraud triangle with vertices: {:?}", psx_vertices);
+
                 let da_x1 = self.drawing_area_x1;
                 let da_y1 = self.drawing_area_y1;
                 // Ensure width and height are at least 1 for valid viewport/scissor
@@ -402,31 +404,27 @@ impl Renderer {
                     );
                 }
 
-                if !current_wgpu_vertices_batch.is_empty() {
-                    // Create a render pass specifically for this draw command (or a small batch)
-                    // The `pass` variable, and thus the mutable borrow of `encoder`,
-                    // is scoped tightly within this block.
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("VRAM Gouraud Triangle Render Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &self.vram_texture.view,
-                            resolve_target: None,
-                            ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None, occlusion_query_set: None,
-                    });
+                // Create a render pass specifically for this draw command (or a small batch)
+                // The `pass` variable, and thus the mutable borrow of `encoder`,
+                // is scoped tightly within this block.
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("VRAM Gouraud Triangle Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.vram_texture.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None, occlusion_query_set: None,
+                });
 
-                    pass.set_viewport(da_x1 as f32, da_y1 as f32, da_w as f32, da_h as f32, 0.0, 1.0);
-                    pass.set_scissor_rect(da_x1 as u32, da_y1 as u32, da_w as u32, da_h as u32);
-                    pass.set_pipeline(&self.gouraud_pipeline);
+                pass.set_viewport(da_x1 as f32, da_y1 as f32, da_w as f32, da_h as f32, 0.0, 1.0);
+                pass.set_scissor_rect(da_x1 as u32, da_y1 as u32, da_w as u32, da_h as u32);
+                pass.set_pipeline(&self.gouraud_pipeline);
 
-                    self.queue.write_buffer(&self.primitive_vertex_buffer, 0, bytemuck::cast_slice(&current_wgpu_vertices_batch));
-                    pass.set_vertex_buffer(0, self.primitive_vertex_buffer.slice(..(current_wgpu_vertices_batch.len() * std::mem::size_of::<GpuVertex>()) as wgpu::BufferAddress));
-                    pass.draw(0..current_wgpu_vertices_batch.len() as u32, 0..1);
-
-                    // `pass` is dropped here, releasing the mutable borrow on `encoder`.
-                }
+                self.queue.write_buffer(&self.primitive_vertex_buffer, 0, bytemuck::cast_slice(&current_wgpu_vertices_batch));
+                pass.set_vertex_buffer(0, self.primitive_vertex_buffer.slice(..(current_wgpu_vertices_batch.len() * std::mem::size_of::<GpuVertex>()) as wgpu::BufferAddress));
+                pass.draw(0..current_wgpu_vertices_batch.len() as u32, 0..1);
             }
             GpuCommand::WriteToVram { x, y, w, h, pixel_data } => {
                 // This command uses `self.queue.write_texture`, not a render pass on `encoder`.
@@ -438,7 +436,7 @@ impl Renderer {
                     return;
                 }
 
-                if w == 16 && h == 1 {
+                if h == 1 {
                     // This is probably a CLUT
                     print!("CLUT write detected: {}x{} at ({},{}): ", w, h, x, y);
                     for i in 0..w {
@@ -529,8 +527,8 @@ impl Renderer {
                     (&v1, &uv1), (&v2, &uv2), (&v3, &uv3), // Triangle 2 (TR, BL, BR)
                 ];
 
-                print!("Drawing textured quad with TL: {:?} and uvs: {:?}. ", v0, [uv0, uv1, uv2, uv3]);
-                println!("TPX: {} TY: {} MODE: {} CLUT: ({}, {}) ", tex_page_x_base, tex_page_y_base, tp_mode, clut_vx, clut_vy);
+                // print!("Drawing textured quad with TL: {:?} and uvs: {:?}. ", v0, [uv0, uv1, uv2, uv3]);
+                // println!("TPX: {} TY: {} MODE: {} CLUT: ({}, {}) ", tex_page_x_base, tex_page_y_base, tp_mode, clut_vx, clut_vy);
 
                 // Drawing area for viewport setup
                 let da_x1 = self.drawing_area_x1;

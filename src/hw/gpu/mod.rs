@@ -64,6 +64,8 @@ pub struct Gpu {
     display_top: u16,
     display_left: u16,
 
+    texpage_e1: u32,
+
     /// Renderer command channel
     renderer_tx: crossbeam_channel::Sender<GpuCommand>,
 }
@@ -87,6 +89,8 @@ impl Gpu {
             vertical_res: 0,
             display_top: 0,
             display_left: 0,
+
+            texpage_e1: 0,
 
             renderer_tx,
         }
@@ -304,16 +308,16 @@ impl Gpu {
 
     // +2
     fn gp0_02_fill_rectangle(&mut self) {
-        // let color_bgr24 = self.buffer[0] & 0xff_ffff;
-        // let top_left_x = self.buffer[1] & 0xffff;
-        // let top_left_y = self.buffer[1] >> 16;
-        // let width = self.buffer[2] & 0xffff;
-        // let height = self.buffer[2] >> 16;
+        let color_bgr24 = self.buffer[0] & 0xff_ffff;
+        let top_left_x = self.buffer[1] & 0xffff;
+        let top_left_y = self.buffer[1] >> 16;
+        let width = self.buffer[2] & 0xffff;
+        let height = self.buffer[2] >> 16;
 
-        // println!(
-        //     "[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
-        //     top_left_x, top_left_y, width, height, color_bgr24
-        // );
+        println!(
+            "[GPU] GP0(02): Fill rectangle from ({}, {}) with size {}x{} with BGR {:06x}",
+            top_left_x, top_left_y, width, height, color_bgr24
+        );
     }
 
     fn gp0_03_nop2(&mut self) {
@@ -594,7 +598,22 @@ impl Gpu {
 
     // +1
     fn gp0_68_mono_rectangle_dot(&mut self) {
-        println!("[GPU] GP0(68): mono_rectangle_dot");
+        let rgb = self.buffer[0] & 0xFFFFFF;
+
+        let vertex = PsxVertex::from_position_and_color(self.buffer[1], rgb);
+        let mut v2 = vertex.clone();
+        let mut v3 = vertex.clone();
+
+        v2.x += 1;
+        v3.y += 1;
+
+        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle {
+            vertices: [
+                vertex,
+                v2,
+                v3,
+            ],
+        }).unwrap();
     }
 
     // +1
@@ -625,24 +644,36 @@ impl Gpu {
     // +3
     fn gp0_64_textured_rectangle_blend(&mut self) {
         // BIOS TODO
-        println!("[GPU] GP0(64): textured_rectangle_blend");
+        println!("[GPU] GP0(64): textured_rectangle_blend, {:?}", self.buffer);
 
         let top_left = Position::parse(self.buffer[1]);
 
         let size = Position::parse(self.buffer[3]);
 
         let positions = [
-            top_left,
-            Position(top_left.0 + size.0, top_left.1),
-            Position(top_left.0, top_left.1 + size.1),
-            Position(top_left.0 + size.0, top_left.1 + size.1),
+            PsxPrimitiveVertex{x: top_left.0, y: top_left.1},
+            PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1},
+            PsxPrimitiveVertex{x: top_left.0, y:top_left.1 + size.1},
+            PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1 + size.1},
         ];
 
-        let colors = [Color::parse(self.buffer[0]); 4];
+        let clut = self.buffer[2] >> 16;
+        let uv = self.buffer[2] & 0xFFFF;
+        let u0 = (uv & 0xFF) as u8;
+        let v0 = ((uv >> 8) & 0xFF) as u8;
 
-        if let Some(renderer) = &mut self.renderer {
-            renderer.push_quad(positions, colors);
-        }
+        self.renderer_tx.send(GpuCommand::DrawTexturedQuad {
+            vertices: positions,
+            uvs: [
+                PsxUv { u: u0, v: v0 },
+                PsxUv { u: u0, v: v0 },
+                PsxUv { u: u0, v: v0 },
+                PsxUv { u: u0, v: v0 },
+            ],
+            clut_attr: clut as u16,
+            texpage_attr: self.texpage_e1 as u16,
+            modulation_color: PsxColor { r: 128, g: 128, b: 128 },
+        }).unwrap();
     }
 
     // +3
@@ -774,7 +805,7 @@ impl Gpu {
 
     // +2 +(width * height)
     fn gp0_c0_copy_vram_cpu(&mut self) {
-        // println!("[GPU] GP0(c0): copy_vram_cpu");
+        println!("[GPU] GP0(c0): copy_vram_cpu");
         // if self.buffer.len() == 3 {
         // Check 3rd word, multiply high and low halfword
         // that's the number of remaining halfwords to read.
@@ -793,17 +824,17 @@ impl Gpu {
     }
 
     fn gp0_e1_draw_mode(&mut self) {
-        // BIOS TODO
-        //println!("[GPU] GP0(e1): draw_mode {:08x}", self.buffer[0]);
+        // println!("[GPU] GP0(e1): draw_mode, {:08x}", self.buffer[0]);
+        self.texpage_e1 = self.buffer[0] & 0x3fff;
     }
 
     fn gp0_e2_texture_window(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(e2): texture_window");
+        // println!("[GPU] GP0(e2): texture_window, {:08x}", self.buffer[0]);
     }
 
     fn gp0_e3_drawing_area_top_left(&mut self) {
-        // println!("[GPU] GP0(e3): drawing_area_top_left");
+        // BIOS
 
         let val = self.buffer[0];
 
@@ -814,7 +845,7 @@ impl Gpu {
     }
 
     fn gp0_e4_drawing_area_bottom_right(&mut self) {
-        // println!("[GPU] GP0(e4): drawing_area_bottom_right");
+        // BIOS
 
         let val = self.buffer[0];
 
@@ -836,8 +867,7 @@ impl Gpu {
     }
 
     fn gp0_e5_drawing_offset(&mut self) {
-        // println!("[GPU] GP0(e5): drawing_offset");
-
+        // BIOS
         let val = self.buffer[0];
 
         let x = (val & 0x7ff) as u16;
