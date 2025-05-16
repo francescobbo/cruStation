@@ -23,7 +23,7 @@ fn main() {
         })
         .expect("Error setting Ctrl-C handler");
     
-        cpu.bus.load_rom("bios/SCPH7002.BIN");
+        cpu.bus.load_rom("bios/SCPH1001.BIN");
     
         let executable = std::env::args().nth(1);
         if let Some(exe) = executable {

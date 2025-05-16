@@ -22,7 +22,7 @@ impl EmuGui {
     pub async fn new() -> (Self, EventLoop<()>, crossbeam_channel::Sender<gpu_command::GpuCommand>) {
         let event_loop = EventLoop::new().expect("Failed to create event loop");
         let window = Arc::new(WindowBuilder::new()
-            .with_title("PS1 Emulator")
+            .with_title("cruStation")
             .with_inner_size(LogicalSize::new(
                 1024, //crate::vertex_data::DEFAULT_DISPLAY_WIDTH,
                 512, //crate::vertex_data::DEFAULT_DISPLAY_HEIGHT

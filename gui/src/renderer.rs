@@ -214,7 +214,7 @@ impl Renderer {
 
             command_rx,
 
-            vram_debug: true,
+            vram_debug: false,
         };
 
         renderer.update_final_display_viewport(); // Calculate initial viewport
