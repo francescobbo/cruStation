@@ -19,7 +19,6 @@ log = "0.4.27"
 pollster = "0.4.0"
 ringbuffer = "0.8.2"
 rustyline = "9.0.0"
-sdl3 = { git = "https://github.com/revmischa/sdl3-rs" } 
 crossbeam-channel = "0.5"
 
 

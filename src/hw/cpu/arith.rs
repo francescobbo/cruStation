@@ -213,25 +213,25 @@ impl Cpu {
 
     #[inline(always)]
     pub fn ins_andi(&mut self) {
-        let value = self.current_instruction.imm16() as u32;
+        let value = self.current_instruction.imm16();
         self.write_reg(self.current_instruction.rt(), self.r_rs() & value);
     }
 
     #[inline(always)]
     pub fn ins_ori(&mut self) {
-        let value = self.current_instruction.imm16() as u32;
+        let value = self.current_instruction.imm16();
         self.write_reg(self.current_instruction.rt(), self.r_rs() | value);
     }
 
     #[inline(always)]
     pub fn ins_xori(&mut self) {
-        let value = self.current_instruction.imm16() as u32;
+        let value = self.current_instruction.imm16();
         self.write_reg(self.current_instruction.rt(), self.r_rs() ^ value);
     }
 
     #[inline(always)]
     pub fn ins_lui(&mut self) {
-        let value = (self.current_instruction.imm16() as u32) << 16;
+        let value = (self.current_instruction.imm16()) << 16;
         self.write_reg(self.current_instruction.rt(), value);
     }
 
@@ -266,10 +266,6 @@ mod tests {
                 self.regs[i] = if i % 2 == 0 { 0x1337_c0d3 } else { 0xf00d_beef };
             }
         }
-    }
-
-    fn make_cpu() -> Cpu {
-        Cpu::new()
     }
 
     #[test]

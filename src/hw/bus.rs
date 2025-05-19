@@ -32,7 +32,6 @@ pub struct Bus {
 
     events: BinaryHeap<PsxEvent>,
 
-    pub debugger: crate::debug::Debugger,
 }
 
 pub enum CpuCommand {
@@ -84,7 +83,6 @@ impl Bus {
 
             events: BinaryHeap::new(),
 
-            debugger: crate::debug::Debugger::new(),
         };
 
         let cpu_freq = 33868800;

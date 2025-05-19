@@ -17,13 +17,15 @@ fn main() {
     thread::spawn(move || {
         let mut cpu = Cpu::new(gui.2);
 
-        let breakpoint = cpu.bus.debugger.triggered.clone();
+        let breakpoint = cpu.debugger.triggered.clone();
         ctrlc::set_handler(move || {
             breakpoint.store(true, Ordering::Relaxed);
         })
         .expect("Error setting Ctrl-C handler");
     
         cpu.bus.load_rom("bios/SCPH1001.BIN");
+
+        cpu.debugger.stepping = true;
     
         let executable = std::env::args().nth(1);
         if let Some(exe) = executable {

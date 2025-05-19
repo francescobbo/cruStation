@@ -6,7 +6,7 @@ use std::rc::Weak;
 
 use bitfield::bitfield;
 use crustationgui::{gpu_command::{PsxPrimitiveVertex, PsxUv}, GpuCommand, PsxColor, PsxVertex};
-use renderer::{Color, Position, Renderer};
+// use renderer::{Color, Position, Renderer};
 
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
 
@@ -42,7 +42,7 @@ bitfield! {
 }
 
 pub struct Gpu {
-    renderer: Option<Renderer>,
+    // renderer: Option<Renderer>,
 
     gpustat: GpuStat,
     buffer: Vec<u32>,
@@ -73,7 +73,7 @@ pub struct Gpu {
 impl Gpu {
     pub fn new(renderer_tx: crossbeam_channel::Sender<GpuCommand>) -> Gpu {
         Gpu {
-            renderer: None,
+            // renderer: None,
 
             gpustat: GpuStat(0x1480_2000),
             buffer: vec![],
@@ -151,10 +151,10 @@ impl Gpu {
         // self.bus.upgrade().unwrap().borrow().send_irq(0);
 
         // println!("VSync IRQ");
-        if let Some(renderer) = &mut self.renderer {
-            renderer.poll_events();
-            renderer.draw();
-        }
+        // if let Some(renderer) = &mut self.renderer {
+        //     renderer.poll_events();
+        //     renderer.draw();
+        // }
     }
 
     pub fn process_gp0(&mut self, command: u32) {
@@ -646,34 +646,34 @@ impl Gpu {
         // BIOS TODO
         println!("[GPU] GP0(64): textured_rectangle_blend, {:?}", self.buffer);
 
-        let top_left = Position::parse(self.buffer[1]);
+        // let top_left = Position::parse(self.buffer[1]);
 
-        let size = Position::parse(self.buffer[3]);
+        // let size = Position::parse(self.buffer[3]);
 
-        let positions = [
-            PsxPrimitiveVertex{x: top_left.0, y: top_left.1},
-            PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1},
-            PsxPrimitiveVertex{x: top_left.0, y:top_left.1 + size.1},
-            PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1 + size.1},
-        ];
+        // let positions = [
+        //     PsxPrimitiveVertex{x: top_left.0, y: top_left.1},
+        //     PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1},
+        //     PsxPrimitiveVertex{x: top_left.0, y:top_left.1 + size.1},
+        //     PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1 + size.1},
+        // ];
 
-        let clut = self.buffer[2] >> 16;
-        let uv = self.buffer[2] & 0xFFFF;
-        let u0 = (uv & 0xFF) as u8;
-        let v0 = ((uv >> 8) & 0xFF) as u8;
+        // let clut = self.buffer[2] >> 16;
+        // let uv = self.buffer[2] & 0xFFFF;
+        // let u0 = (uv & 0xFF) as u8;
+        // let v0 = ((uv >> 8) & 0xFF) as u8;
 
-        self.renderer_tx.send(GpuCommand::DrawTexturedQuad {
-            vertices: positions,
-            uvs: [
-                PsxUv { u: u0, v: v0 },
-                PsxUv { u: u0, v: v0 },
-                PsxUv { u: u0, v: v0 },
-                PsxUv { u: u0, v: v0 },
-            ],
-            clut_attr: clut as u16,
-            texpage_attr: self.texpage_e1 as u16,
-            modulation_color: PsxColor { r: 128, g: 128, b: 128 },
-        }).unwrap();
+        // self.renderer_tx.send(GpuCommand::DrawTexturedQuad {
+        //     vertices: positions,
+        //     uvs: [
+        //         PsxUv { u: u0, v: v0 },
+        //         PsxUv { u: u0, v: v0 },
+        //         PsxUv { u: u0, v: v0 },
+        //         PsxUv { u: u0, v: v0 },
+        //     ],
+        //     clut_attr: clut as u16,
+        //     texpage_attr: self.texpage_e1 as u16,
+        //     modulation_color: PsxColor { r: 128, g: 128, b: 128 },
+        // }).unwrap();
     }
 
     // +3
@@ -880,9 +880,9 @@ impl Gpu {
 
         self.drawing_offset = (x, y);
 
-        if let Some(renderer) = &mut self.renderer {
-            renderer.set_draw_offset(x, y);
-        }
+        // if let Some(renderer) = &mut self.renderer {
+        //     renderer.set_draw_offset(x, y);
+        // }
     }
 
     fn gp0_e6_mask_bit(&mut self) {

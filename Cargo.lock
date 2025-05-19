@@ -1343,7 +1343,6 @@ dependencies = [
  "pollster",
  "ringbuffer",
  "rustyline",
- "sdl3",
  "serde",
  "serde_json",
 ]
@@ -1555,23 +1554,6 @@ dependencies = [
  "smithay-client-toolkit",
  "tiny-skia",
 ]
-
-[[package]]
-name = "sdl3"
-version = "0.14.26"
-source = "git+https://github.com/revmischa/sdl3-rs#93e5bca51995a0997abcf0820b1a6034c9840186"
-dependencies = [
- "bitflags 2.9.0",
- "lazy_static",
- "libc",
- "sdl3-sys",
-]
-
-[[package]]
-name = "sdl3-sys"
-version = "0.5.1+SDL3-3.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9be4ae099823870a9c9de3f72ec181d602d8d0550c8f5b2dfdfa9bbaa8ddccd2"
 
 [[package]]
 name = "serde"

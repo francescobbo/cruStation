@@ -65,7 +65,6 @@ impl Renderer {
         let window_size = window.inner_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
             ..wgpu::InstanceDescriptor::default()
         });
         let surface = instance.create_surface(window.clone()).unwrap();

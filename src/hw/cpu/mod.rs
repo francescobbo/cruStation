@@ -21,7 +21,7 @@ use icache::InstructionCache;
 use instruction::Instruction;
 use scratchpad::Scratchpad;
 
-use crate::hw::bus::BusDevice;
+use crate::{debug, hw::bus::BusDevice};
 
 use super::bus::{Bus, CpuCommand};
 
@@ -59,6 +59,8 @@ pub struct Cpu {
     extra_cycles: u64,
 
     pub tasks: VecDeque<CpuCommand>,
+
+    pub debugger: debug::Debugger,
 }
 
 impl Cpu {
@@ -102,6 +104,8 @@ impl Cpu {
             //     .as_millis(),
             extra_cycles: 0,
             tasks: VecDeque::new(),
+
+            debugger: debug::Debugger::new(),
         }
     }
 
@@ -193,9 +197,9 @@ impl Cpu {
     pub fn step(&mut self) -> u64 {
         self.extra_cycles = 0;
 
-        // if debug::Debugger::should_break(self) {
-        //     debug::Debugger::enter(self);
-        // }
+        if debug::Debugger::should_break(self) {
+            debug::Debugger::enter(self);
+        }
 
         self.step_inner();
 
