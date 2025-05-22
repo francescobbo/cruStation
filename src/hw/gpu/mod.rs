@@ -5,7 +5,10 @@ use std::cell::RefCell;
 use std::rc::Weak;
 
 use bitfield::bitfield;
-use crustationgui::{gpu_command::{PsxPrimitiveVertex, PsxUv}, GpuCommand, PsxColor, PsxVertex};
+use crustationgui::{
+    gpu_command::{PsxPrimitiveVertex, PsxUv},
+    GpuCommand, PsxColor, PsxVertex,
+};
 // use renderer::{Color, Position, Renderer};
 
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
@@ -43,7 +46,6 @@ bitfield! {
 
 pub struct Gpu {
     // renderer: Option<Renderer>,
-
     gpustat: GpuStat,
     buffer: Vec<u32>,
     remaining_words: usize,
@@ -60,7 +62,7 @@ pub struct Gpu {
     drawing_offset: (i16, i16),
 
     horizontal_res: u16,
-    vertical_res: u16,  
+    vertical_res: u16,
     display_top: u16,
     display_left: u16,
 
@@ -74,7 +76,6 @@ impl Gpu {
     pub fn new(renderer_tx: crossbeam_channel::Sender<GpuCommand>) -> Gpu {
         Gpu {
             // renderer: None,
-
             gpustat: GpuStat(0x1480_2000),
             buffer: vec![],
             remaining_words: 0,
@@ -338,7 +339,9 @@ impl Gpu {
             PsxVertex::from_position_and_color(self.buffer[3], self.buffer[0]),
         ];
 
-        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices }).unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawGouraudTriangle { vertices })
+            .unwrap();
     }
 
     // 21 garbage
@@ -387,8 +390,16 @@ impl Gpu {
             PsxVertex::from_position_and_color(self.buffer[4], self.buffer[0]),
         ];
 
-        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle1 }).unwrap();
-        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle2 }).unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawGouraudTriangle {
+                vertices: triangle1,
+            })
+            .unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawGouraudTriangle {
+                vertices: triangle2,
+            })
+            .unwrap();
     }
 
     // 29 garbage
@@ -407,7 +418,7 @@ impl Gpu {
         let mod_g = ((self.buffer[0] >> 8) & 0x0000FF) as u8;
         let mod_b = ((self.buffer[0] >> 16) & 0x0000FF) as u8;
 
-        let clut_attr = (self.buffer[2] >> 16) as u16; 
+        let clut_attr = (self.buffer[2] >> 16) as u16;
         let texpage_attr = (self.buffer[4] >> 16) as u16;
 
         let y0 = (self.buffer[1] >> 16) as i16;
@@ -430,24 +441,29 @@ impl Gpu {
         let u3 = (self.buffer[8] & 0xFF) as u8;
         let v3 = ((self.buffer[8] >> 8) & 0xFF) as u8;
 
-
-        self.renderer_tx.send(GpuCommand::DrawTexturedQuad {
-            vertices: [
-                PsxPrimitiveVertex { x: x0, y: y0 },
-                PsxPrimitiveVertex { x: x1, y: y1 },
-                PsxPrimitiveVertex { x: x2, y: y2 },
-                PsxPrimitiveVertex { x: x3, y: y3 },
-            ],
-            uvs: [
-                PsxUv { u: u0, v: v0 },
-                PsxUv { u: u1, v: v1 },
-                PsxUv { u: u2, v: v2 },
-                PsxUv { u: u3, v: v3 },
-            ],
-            clut_attr,
-            texpage_attr,
-            modulation_color: PsxColor { r: mod_r, g: mod_g, b: mod_b },
-        }).unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawTexturedQuad {
+                vertices: [
+                    PsxPrimitiveVertex { x: x0, y: y0 },
+                    PsxPrimitiveVertex { x: x1, y: y1 },
+                    PsxPrimitiveVertex { x: x2, y: y2 },
+                    PsxPrimitiveVertex { x: x3, y: y3 },
+                ],
+                uvs: [
+                    PsxUv { u: u0, v: v0 },
+                    PsxUv { u: u1, v: v1 },
+                    PsxUv { u: u2, v: v2 },
+                    PsxUv { u: u3, v: v3 },
+                ],
+                clut_attr,
+                texpage_attr,
+                modulation_color: PsxColor {
+                    r: mod_r,
+                    g: mod_g,
+                    b: mod_b,
+                },
+            })
+            .unwrap();
     }
 
     // +8
@@ -476,7 +492,9 @@ impl Gpu {
             PsxVertex::from_position_and_color(self.buffer[5], self.buffer[4]),
         ];
 
-        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices }).unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawGouraudTriangle { vertices })
+            .unwrap();
     }
 
     // 31 garbage
@@ -519,8 +537,16 @@ impl Gpu {
             PsxVertex::from_position_and_color(self.buffer[7], self.buffer[6]),
         ];
 
-        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle1 }).unwrap();
-        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle { vertices: triangle2 }).unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawGouraudTriangle {
+                vertices: triangle1,
+            })
+            .unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawGouraudTriangle {
+                vertices: triangle2,
+            })
+            .unwrap();
     }
 
     // 39 garbage
@@ -607,13 +633,11 @@ impl Gpu {
         v2.x += 1;
         v3.y += 1;
 
-        self.renderer_tx.send(GpuCommand::DrawGouraudTriangle {
-            vertices: [
-                vertex,
-                v2,
-                v3,
-            ],
-        }).unwrap();
+        self.renderer_tx
+            .send(GpuCommand::DrawGouraudTriangle {
+                vertices: [vertex, v2, v3],
+            })
+            .unwrap();
     }
 
     // +1
@@ -654,8 +678,8 @@ impl Gpu {
         //     PsxPrimitiveVertex{x: top_left.0, y: top_left.1},
         //     PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1},
         //     PsxPrimitiveVertex{x: top_left.0, y:top_left.1 + size.1},
-        //     PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1 + size.1},
-        // ];
+        //     PsxPrimitiveVertex{x: top_left.0 + size.0, y:top_left.1 +
+        // size.1}, ];
 
         // let clut = self.buffer[2] >> 16;
         // let uv = self.buffer[2] & 0xFFFF;
@@ -767,7 +791,7 @@ impl Gpu {
             let size = self.buffer[2] as usize;
             let width = size & 0xffff;
             let height = size >> 16;
-            
+
             let halfwords = width * height;
             self.remaining_words = if halfwords % 2 == 0 {
                 halfwords / 2
@@ -791,12 +815,18 @@ impl Gpu {
                 .collect::<Vec<u16>>();
 
             // println!(
-            //     "[GPU] GP0(a0): copy_cpu_vram to ({}, {}) with size {}x{} with {} halfwords",
-            //     x, y, width, height, halfwords.len()
+            //     "[GPU] GP0(a0): copy_cpu_vram to ({}, {}) with size {}x{} with {}
+            // halfwords",     x, y, width, height, halfwords.len()
             // );
 
             self.renderer_tx
-                .send(GpuCommand::WriteToVram { x, y, w: width, h: height, pixel_data: halfwords })
+                .send(GpuCommand::WriteToVram {
+                    x,
+                    y,
+                    w: width,
+                    h: height,
+                    pixel_data: halfwords,
+                })
                 .unwrap();
 
             self.buffer.clear();
@@ -887,7 +917,8 @@ impl Gpu {
 
     fn gp0_e6_mask_bit(&mut self) {
         // BIOS TODO
-        // println!("[GPU] GP0(e6): mask_bit, mask: {:08x}", self.buffer[0] & 3);
+        // println!("[GPU] GP0(e6): mask_bit, mask: {:08x}", self.buffer[0] &
+        // 3);
     }
 
     fn process_gp1(&mut self, command: u32) {
@@ -920,7 +951,12 @@ impl Gpu {
                 self.display_top = ((arguments >> 10) & 0x1ff) as u16;
 
                 self.renderer_tx
-                    .send(GpuCommand::SetDisplayArea { x: self.display_left, y: self.display_top, w: self.horizontal_res, h: self.vertical_res })
+                    .send(GpuCommand::SetDisplayArea {
+                        x: self.display_left,
+                        y: self.display_top,
+                        w: self.horizontal_res,
+                        h: self.vertical_res,
+                    })
                     .unwrap();
             }
             0x06 => {
@@ -947,12 +983,17 @@ impl Gpu {
                 };
 
                 self.vertical_res = if (arguments & 0x40) != 0 { 480 } else { 240 };
-                
+
                 // TODO: understand why the BIOS sets 640x240, which is wrong
                 self.vertical_res = 480;
 
                 self.renderer_tx
-                    .send(GpuCommand::SetDisplayArea { x: self.display_left, y: self.display_top, w: self.horizontal_res, h: self.vertical_res })
+                    .send(GpuCommand::SetDisplayArea {
+                        x: self.display_left,
+                        y: self.display_top,
+                        w: self.horizontal_res,
+                        h: self.vertical_res,
+                    })
                     .unwrap();
             }
             0x10..=0x1f => {

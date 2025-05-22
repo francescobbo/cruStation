@@ -53,7 +53,8 @@ pub struct Cpu {
 
     current_instruction: Instruction,
     pub branch_delay_slot: Option<(u32, u32)>,
-    load_delay_slot: [LoadDelaySlot; 2],
+    load_delay_slot: Option<LoadDelaySlot>,
+    last_reg_write: u32,
     in_delay: bool,
 
     extra_cycles: u64,
@@ -86,17 +87,9 @@ impl Cpu {
 
             current_instruction: Instruction(0),
             branch_delay_slot: None,
-            load_delay_slot: [
-                LoadDelaySlot {
-                    register: 32,
-                    value: 0,
-                },
-                LoadDelaySlot {
-                    register: 32,
-                    value: 0,
-                },
-            ],
+            load_delay_slot: None,
             in_delay: false,
+            last_reg_write: 0,
             // ips: 0,
             // ips_start: SystemTime::now()
             //     .duration_since(UNIX_EPOCH)
@@ -244,6 +237,10 @@ impl Cpu {
             self.pc = self.pc.wrapping_add(4);
         }
 
+        // println!("[PC] {:08x} {:08x}", self.pc, self.current_instruction.0);
+        let delay = self.load_delay_slot.take();
+        self.last_reg_write = 0;
+
         match self.current_instruction.opcode() {
             0x00 => match self.current_instruction.special_opcode() {
                 0x00 => self.ins_sll(),
@@ -305,11 +302,11 @@ impl Cpu {
             0x13 => self.ins_cop3(),
             0x20 => self.ins_lb(),
             0x21 => self.ins_lh(),
-            0x22 => self.ins_lwl(),
+            0x22 => self.ins_lwl(delay),
             0x23 => self.ins_lw(),
             0x24 => self.ins_lbu(),
             0x25 => self.ins_lhu(),
-            0x26 => self.ins_lwr(),
+            0x26 => self.ins_lwr(delay),
             0x28 => self.ins_sb(),
             0x29 => self.ins_sh(),
             0x2A => self.ins_swl(),
@@ -333,15 +330,21 @@ impl Cpu {
         }
 
         self.in_delay = false;
-        self.load_delays();
+        self.load_delays(delay);
     }
 
     #[inline(always)]
-    fn load_delays(&mut self) {
-        self.regs[self.load_delay_slot[0].register as usize] = self.load_delay_slot[0].value;
+    fn load_delays(&mut self, delay: Option<LoadDelaySlot>) {
+        if let Some(LoadDelaySlot {
+            register, value, ..
+        }) = delay
+        {
+            if register == 0 || register == self.last_reg_write {
+                return;
+            }
 
-        self.load_delay_slot[0] = self.load_delay_slot[1];
-        self.load_delay_slot[1].register = 32;
+            self.regs[register as usize] = value;
+        }
     }
 
     pub fn request_interrupt(&mut self, irq_number: u32) {
@@ -378,10 +381,7 @@ impl Cpu {
         }
 
         self.regs[reg as usize] = value;
-
-        if self.load_delay_slot[0].register == reg {
-            self.load_delay_slot[0].register = 32;
-        }
+        self.last_reg_write = reg;
     }
 
     pub fn load_exe(&mut self, path: &str) {

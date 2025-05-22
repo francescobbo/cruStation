@@ -83,9 +83,20 @@ impl Debugger {
 
     pub fn should_break(cpu: &Cpu) -> bool {
         let pc = effective_pc(cpu);
+
+        let triggered = cpu
+            .debugger
+            .triggered
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if triggered {
+            cpu.debugger
+                .triggered
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+        }
         cpu.debugger.stepping
             || cpu.debugger.next_breakpoint == pc
             || cpu.debugger.breakpoints.contains(&pc)
+            || triggered
     }
 
     fn run_debug_command(line: String, cpu: &mut Cpu) -> bool {

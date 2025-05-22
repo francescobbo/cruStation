@@ -60,11 +60,12 @@
 //             .expect("Failed to create window");
 
 //         let gl_context = window.gl_create_context().unwrap();
-//         window.gl_make_current(&gl_context).expect("Failed to make GL context current");
+//         window.gl_make_current(&gl_context).expect("Failed to make GL context
+// current");
 
 //         gl::load_with(|s| {
-//             video_subsystem.gl_get_proc_address(s).unwrap() as *const std::os::raw::c_void
-//         });
+//             video_subsystem.gl_get_proc_address(s).unwrap() as *const
+// std::os::raw::c_void         });
 
 //         unsafe {
 //             gl::ClearColor(0.1, 0.1, 0.15, 1.0);
@@ -121,16 +122,17 @@
 //             let index = find_program_attrib(program, "vertex_color");
 //             gl::EnableVertexAttribArray(index);
 
-//             // Link the buffer and the index: 3 GLByte attributes, normalized.
-//             gl::VertexAttribPointer(index, 3, gl::UNSIGNED_BYTE, gl::TRUE, 0, ptr::null());
-//         }
+//             // Link the buffer and the index: 3 GLByte attributes,
+// normalized.             gl::VertexAttribPointer(index, 3, gl::UNSIGNED_BYTE,
+// gl::TRUE, 0, ptr::null());         }
 
 //         let uniform_offset = find_program_uniform(program, "offset");
 //         unsafe {
 //             gl::Uniform2i(uniform_offset, 0, 0);
 //         }
 
-//         // let mut event_pump = sdl_context.event_pump().expect("Failed to get event pump");
+//         // let mut event_pump = sdl_context.event_pump().expect("Failed to
+// get event pump");
 
 //         Renderer {
 //             window,
@@ -149,8 +151,8 @@
 //         }
 //     }
 
-//     pub fn push_triangle(&mut self, positions: [Position; 3], colors: [Color; 3]) {
-//         // Make sure we have enough room left to queue the vertex
+//     pub fn push_triangle(&mut self, positions: [Position; 3], colors: [Color;
+// 3]) {         // Make sure we have enough room left to queue the vertex
 //         if self.nvertices + 3 > 64 * 1024 {
 //             println!("Vertex attribute buffers full, forcing draw");
 //             self.draw();
@@ -167,15 +169,16 @@
 //     pub fn draw(&mut self) {
 //         unsafe {
 //             // gl::ClearColor(0.1, 0.1, 0.15, 1.0);
-//             // gl::Clear(gl::COLOR_BUFFER_BIT); // Add | gl::DEPTH_BUFFER_BIT if using depth testing
-    
+//             // gl::Clear(gl::COLOR_BUFFER_BIT); // Add | gl::DEPTH_BUFFER_BIT
+// if using depth testing
+
 //             // Make sure all the data from the persistent mappings is
 //             // flushed to the buffer
 //             // gl::FlushMappedBufferRange(
 //             //     gl::ARRAY_BUFFER,
 //             //     0,
-//             //     (self.nvertices * size_of::<Position>() as u32) as GLsizeiptr,
-//             // );
+//             //     (self.nvertices * size_of::<Position>() as u32) as
+// GLsizeiptr,             // );
 
 //             gl::DrawArrays(gl::TRIANGLES, 0, self.nvertices as GLsizei);
 //         }
@@ -185,10 +188,11 @@
 //         //     let sync = gl::FenceSync(gl::SYNC_GPU_COMMANDS_COMPLETE, 0);
 
 //         //     loop {
-//         //         let r = gl::ClientWaitSync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, 10000000);
+//         //         let r = gl::ClientWaitSync(sync,
+// gl::SYNC_FLUSH_COMMANDS_BIT, 10000000);
 
-//         //         if r == gl::ALREADY_SIGNALED || r == gl::CONDITION_SATISFIED {
-//         //             // Drawing done
+//         //         if r == gl::ALREADY_SIGNALED || r ==
+// gl::CONDITION_SATISFIED {         //             // Drawing done
 //         //             break;
 //         //         }
 //         //     }
@@ -225,8 +229,8 @@
 
 //     /// Set the drawing area. Coordinates are offsets in the
 //     /// PlayStation VRAM
-//     pub fn set_drawing_area(&mut self, left: u16, top: u16, right: u16, bottom: u16) {
-//         // Render any pending primitives
+//     pub fn set_drawing_area(&mut self, left: u16, top: u16, right: u16,
+// bottom: u16) {         // Render any pending primitives
 //         self.draw();
 
 //         // println!(
@@ -276,8 +280,8 @@
 //         }
 //     }
 
-//     pub fn push_quad(&mut self, positions: [Position; 4], colors: [Color; 4]) {
-//         // Make sure we have enough room left to queue the vertex. We
+//     pub fn push_quad(&mut self, positions: [Position; 4], colors: [Color; 4])
+// {         // Make sure we have enough room left to queue the vertex. We
 //         // need to push two triangles to draw a quad, so 6 vertex
 //         if self.nvertices + 6 > 64 * 1024 {
 //             self.draw();
@@ -343,11 +347,12 @@
 
 //             // Calculate the size of the buffer in bytes
 //             let element_size = size_of::<T>() as GLsizeiptr;
-//             let buffer_size_bytes = element_size * (BUFFER_CAPACITY_ELEMENTS as GLsizeiptr);
+//             let buffer_size_bytes = element_size * (BUFFER_CAPACITY_ELEMENTS
+// as GLsizeiptr);
 
 //             // Allocate buffer data store using glBufferData.
-//             // GL_DYNAMIC_DRAW is a hint that the data will be modified frequently.
-//             // Initialize with null data; we'll map it to write.
+//             // GL_DYNAMIC_DRAW is a hint that the data will be modified
+// frequently.             // Initialize with null data; we'll map it to write.
 //             gl::BufferData(
 //                 gl::ARRAY_BUFFER,      // target
 //                 buffer_size_bytes,     // size in bytes
@@ -356,12 +361,13 @@
 //             );
 
 //             // Map the buffer.
-//             // Note: For frequent updates, consider mapping once and unmapping on drop,
-//             // or using glBufferSubData if mapping/unmapping per frame is too slow.
-//             // gl::MAP_WRITE_BIT is essential for writing.
-//             // gl::MAP_INVALIDATE_BUFFER_BIT can be a performance hint if overwriting the whole buffer.
-//             let map_access_flags = gl::MAP_WRITE_BIT | gl::MAP_INVALIDATE_BUFFER_BIT;
-            
+//             // Note: For frequent updates, consider mapping once and
+// unmapping on drop,             // or using glBufferSubData if
+// mapping/unmapping per frame is too slow.             // gl::MAP_WRITE_BIT is
+// essential for writing.             // gl::MAP_INVALIDATE_BUFFER_BIT can be a
+// performance hint if overwriting the whole buffer.             let
+// map_access_flags = gl::MAP_WRITE_BIT | gl::MAP_INVALIDATE_BUFFER_BIT;
+
 //             memory = gl::MapBufferRange(
 //                 gl::ARRAY_BUFFER,    // target
 //                 0,                   // offset
@@ -376,8 +382,8 @@
 //             }
 
 //             // Initialize the mapped memory with default values
-//             let s = slice::from_raw_parts_mut(memory, BUFFER_CAPACITY_ELEMENTS);
-//             for x in s.iter_mut() {
+//             let s = slice::from_raw_parts_mut(memory,
+// BUFFER_CAPACITY_ELEMENTS);             for x in s.iter_mut() {
 //                 *x = T::default();
 //             }
 //         }
@@ -405,16 +411,17 @@
 //         unsafe {
 //             if !self.map.is_null() {
 //                 // Bind the buffer to unmap it. This is important.
-//                 // If another buffer is bound to GL_ARRAY_BUFFER, glUnmapBuffer would target that one.
-//                 gl::BindBuffer(gl::ARRAY_BUFFER, self.object);
-//                 let unmap_status = gl::UnmapBuffer(gl::ARRAY_BUFFER);
-//                 if unmap_status == gl::FALSE {
-//                     // An error occurred during unmapping. This can happen if the data store became corrupted.
-//                     // Log this, but proceed to delete the buffer object itself.
-//                     // Note: Production code might handle this more gracefully or log to a file.
+//                 // If another buffer is bound to GL_ARRAY_BUFFER,
+// glUnmapBuffer would target that one.                 
+// gl::BindBuffer(gl::ARRAY_BUFFER, self.object);                 let
+// unmap_status = gl::UnmapBuffer(gl::ARRAY_BUFFER);                 if
+// unmap_status == gl::FALSE {                     // An error occurred during
+// unmapping. This can happen if the data store became corrupted.               
+// // Log this, but proceed to delete the buffer object itself.                 
+// // Note: Production code might handle this more gracefully or log to a file.
 //                     let error = gl::GetError();
-//                     eprintln!("Error unmapping buffer object {}: GL Error {}", self.object, error);
-//                 }
+//                     eprintln!("Error unmapping buffer object {}: GL Error
+// {}", self.object, error);                 }
 //                 self.map = ptr::null_mut(); // Mark as unmapped
 //                  // Unbind after operation
 //                 gl::BindBuffer(gl::ARRAY_BUFFER, 0);

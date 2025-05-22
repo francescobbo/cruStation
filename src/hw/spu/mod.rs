@@ -6,7 +6,7 @@ pub struct Spu {
 
     spucnt: u16,
 
-    manual_destination: usize
+    manual_destination: usize,
 }
 
 impl Spu {
@@ -17,7 +17,7 @@ impl Spu {
 
             spucnt: 0,
 
-            manual_destination: 0
+            manual_destination: 0,
         }
     }
 
@@ -31,10 +31,12 @@ impl Spu {
                 self.manual_destination = (value & 0xFFFF) as usize * 8;
             }
             0x1f80_1da8 => {
-                let mut bytes = &mut self.memory[self.manual_destination..self.manual_destination + 2];
+                let mut bytes =
+                    &mut self.memory[self.manual_destination..self.manual_destination + 2];
                 bytes.write_u16::<LittleEndian>(value as u16).unwrap();
 
-                // println!("[SPU] Memwrite: {:#06x} -> {:#04x}", self.manual_destination, value as u16);
+                // println!("[SPU] Memwrite: {:#06x} -> {:#04x}", self.manual_destination, value
+                // as u16);
 
                 self.manual_destination += 2;
                 self.manual_destination %= self.memory.len();
@@ -44,7 +46,7 @@ impl Spu {
                 // println!("[SPUCNT] Write: {:#08x}", value);
                 self.spucnt = (value & 0xFFFF) as u16;
             }
-            _ => {}//println!("[SPU] Write: {:#08x} -> {:#08x}", addr + 0x1f80_1c00, value)
+            _ => {} //println!("[SPU] Write: {:#08x} -> {:#08x}", addr + 0x1f80_1c00, value)
         }
     }
 
@@ -62,9 +64,7 @@ impl Spu {
                 // SPUSTAT
                 (self.spucnt as u32) & 0x3f
             }
-            _ => {
-                val
-            }
+            _ => val,
         };
 
         // println!("[SPU] Read: {:#08x} -> {:#08x}", addr + 0x1F801C00, val);

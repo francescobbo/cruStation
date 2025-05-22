@@ -26,13 +26,18 @@ impl Cpu {
         }
     }
 
-    pub fn ins_lwl(&mut self) {
+    pub fn ins_lwl(&mut self, delay: Option<LoadDelaySlot>) {
         let addr = self.ls_address();
-        let cur_v = if self.load_delay_slot[0].register == self.current_instruction.rt() {
-            self.load_delay_slot[0].value
-        } else {
-            self.r_rt()
-        };
+        let mut cur_v = self.r_rt();
+
+        if let Some(LoadDelaySlot {
+            register, value, ..
+        }) = delay
+        {
+            if register == self.current_instruction.rt() {
+                cur_v = value
+            }
+        }
 
         let aligned_word = self.load::<4>(addr & !3);
         let v = match addr & 3 {
@@ -76,13 +81,19 @@ impl Cpu {
         }
     }
 
-    pub fn ins_lwr(&mut self) {
+    pub fn ins_lwr(&mut self, delay: Option<LoadDelaySlot>) {
         let addr = self.ls_address();
-        let cur_v = if self.load_delay_slot[0].register == self.current_instruction.rt() {
-            self.load_delay_slot[0].value
-        } else {
-            self.r_rt()
-        };
+        let rt = self.current_instruction.rt();
+        let mut cur_v = self.r_rt();
+
+        if let Some(LoadDelaySlot {
+            register, value, ..
+        }) = delay
+        {
+            if register == rt {
+                cur_v = value
+            }
+        }
 
         let aligned_word = self.load::<4>(addr & !3);
         let v = match addr & 3 {
@@ -162,14 +173,10 @@ impl Cpu {
             return;
         }
 
-        if self.load_delay_slot[0].register == reg {
-            self.load_delay_slot[0].register = 32;
-        }
-
-        self.load_delay_slot[1] = LoadDelaySlot {
+        self.load_delay_slot = Some(LoadDelaySlot {
             register: reg,
             value,
-        };
+        });
     }
 
     pub fn load<const T: u32>(&mut self, address: u32) -> u32 {

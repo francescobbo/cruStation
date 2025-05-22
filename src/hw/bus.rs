@@ -31,7 +31,6 @@ pub struct Bus {
     joy_mc: JoypadMemorycard,
 
     events: BinaryHeap<PsxEvent>,
-
 }
 
 pub enum CpuCommand {
@@ -82,7 +81,6 @@ impl Bus {
             joy_mc: JoypadMemorycard::new(),
 
             events: BinaryHeap::new(),
-
         };
 
         let cpu_freq = 33868800;
@@ -375,7 +373,7 @@ impl Bus {
                 // Ignore writes to the ROM
             }
             _ => {
-                panic!("Cannot write value {:x} at {:x}", value, addr);
+                panic!("Cannot write value {:x} ({} bytes) at {:x}", value, S, addr);
             }
         }
     }
