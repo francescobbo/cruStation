@@ -1,7 +1,7 @@
 mod bios;
 pub mod bus;
 mod cdrom;
-mod cpu;
+pub mod cpu;
 pub mod disasm;
 mod dma;
 mod gpu;

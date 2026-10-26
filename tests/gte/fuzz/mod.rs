@@ -22,7 +22,8 @@ fn load_fuzz_tests(set_name: &str) -> Vec<GteFuzzTest> {
     tests
 }
 
-use crate::hw::gte::Gte;
+use psx::hw::cpu::gte::Gte;
+use psx::hw::cpu::gte::Flags;
 
 #[test]
 fn registers() {

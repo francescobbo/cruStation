@@ -387,7 +387,7 @@ impl Renderer {
             GpuCommand::DrawGouraudTriangle { vertices: psx_vertices } => {
                 current_wgpu_vertices_batch.clear(); // Prepare for new vertices
 
-                println!("Drawing Gouraud triangle with vertices: {:?}", psx_vertices);
+                // println!("Drawing Gouraud triangle with vertices: {:?}", psx_vertices);
 
                 let da_x1 = self.drawing_area_x1;
                 let da_y1 = self.drawing_area_y1;

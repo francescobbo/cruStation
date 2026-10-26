@@ -64,8 +64,12 @@ impl Gte {
         sign_x_to_s64!(44, value)
     }
 
-    fn lm_b(&mut self, which: usize, value: i32, lm: bool) -> i16 {
-        let min: i32 = if lm { 0 } else { -0x8000 };
+    /// Clamps the value to the range [-0x8000, 0x7fff] for signed values, or
+    /// [0, 0x7fff] for unsigned values.
+    /// Sets the overflow flag for the given `which` index if the value is out of range.
+    /// `which` must be in the range 0..=2, 0->IR1, 1->IR2, 2->IR3. 
+    fn clamp_ir(&mut self, which: usize, value: i32, unsigned: bool) -> i16 {
+        let min: i32 = if unsigned { 0 } else { -0x8000 };
         if value < min {
             self.flags.0 |= 1 << (24 - which);
             min as i16
@@ -77,7 +81,7 @@ impl Gte {
         }
     }
 
-    fn lm_b_ptz(&mut self, which: usize, value: i32, ftv_value: i32, lm: bool) -> i16 {
+    fn clamp_ir_ptz(&mut self, which: usize, value: i32, ftv_value: i32, lm: bool) -> i16 {
         let tmp: i32 = if lm { 0x8000 } else { 0 };
 
         if ftv_value < -0x8000 {
@@ -97,7 +101,8 @@ impl Gte {
         }
     }
 
-    fn lm_c(&mut self, which: usize, value: i32) -> u8 {
+    /// Clamps the value to a single byte range [0, 0xff]. Used for colors.
+    fn clamp_color(&mut self, which: usize, value: i32) -> u8 {
         if value > 0xff {
             self.flags.0 |= 1 << (21 - which);
             0xff
@@ -135,19 +140,22 @@ impl Gte {
         }
     }
 
-    fn lm_g(&mut self, which: usize, value: i32) -> i16 {
-        if value < -0x400 {
+    /// Clamps the value to the screen range [-1024, 1023]. Technically, the Y
+    /// coordinate should be clamped to [-512, 511], but the GTE doesn't care!
+    fn clamp_to_screen(&mut self, which: usize, value: i32) -> i16 {
+        if value < -1024 {
             self.flags.0 |= 1 << (14 - which);
-            -0x400
-        } else if value > 0x3ff {
+            -1024
+        } else if value > 1023 {
             self.flags.0 |= 1 << (14 - which);
-            0x3ff
+            1023
         } else {
             value as i16
         }
     }
 
-    fn lm_h(&mut self, value: i32) -> i16 {
+    /// Clamps the depth cue value to the range [0, 0x1000].
+    fn clamp_depth_cue(&mut self, value: i32) -> i16 {
         if value < 0 {
             self.flags.set_ir0_sat(true);
             0
@@ -179,7 +187,7 @@ impl Gte {
             tmp = self.a_mv(i, tmp + mulr[0] as i64);
             // TODO: this should be a ref
             if crv == self.fc {
-                self.lm_b(i, (tmp >> sf) as i32, false);
+                self.clamp_ir(i, (tmp >> sf) as i32, false);
                 tmp = 0;
             }
             tmp = self.a_mv(i, tmp + mulr[1] as i64);
@@ -217,9 +225,9 @@ impl Gte {
             self.mac[1 + i] = (tmp[i] >> sf) as i32;
         }
 
-        self.ir[1] = self.lm_b(0, self.mac[1], lm);
-        self.ir[2] = self.lm_b(1, self.mac[2], lm);
-        self.ir[3] = self.lm_b_ptz(2, self.mac[3], (tmp[2] >> 12) as i32, lm);
+        self.ir[1] = self.clamp_ir(0, self.mac[1], lm);
+        self.ir[2] = self.clamp_ir(1, self.mac[2], lm);
+        self.ir[3] = self.clamp_ir_ptz(2, self.mac[3], (tmp[2] >> 12) as i32, lm);
 
         self.z_fifo[0] = self.z_fifo[1];
         self.z_fifo[1] = self.z_fifo[2];
@@ -227,7 +235,8 @@ impl Gte {
         self.z_fifo[3] = self.lm_d((tmp[2] >> 12) as i32, true) as u16;
     }
 
-    fn f(&mut self, value: i64) -> i64 {
+    /// Sets the MAC0 overflow flags based on the value.
+    fn mac0_ovf(&mut self, value: i64) -> i64 {
         if value < -0x8000_0000 {
             // flag set here
             self.flags.set_mac0_of_neg(true);
@@ -242,11 +251,11 @@ impl Gte {
     }
 
     fn transform_xy(&mut self, h_div_sz: i64) {
-        self.mac[0] = (self.f(self.ofx as i64 + self.ir[1] as i64 * h_div_sz) >> 16) as i32;
-        self.xy_fifo[3].x = self.lm_g(0, self.mac[0]) as i16;
+        self.mac[0] = (self.mac0_ovf(self.ofx as i64 + self.ir[1] as i64 * h_div_sz) >> 16) as i32;
+        self.xy_fifo[3].x = self.clamp_to_screen(0, self.mac[0]) as i16;
 
-        self.mac[0] = (self.f(self.ofy as i64 + self.ir[2] as i64 * h_div_sz) >> 16) as i32;
-        self.xy_fifo[3].y = self.lm_g(1, self.mac[0]) as i16;
+        self.mac[0] = (self.mac0_ovf(self.ofy as i64 + self.ir[2] as i64 * h_div_sz) >> 16) as i32;
+        self.xy_fifo[3].y = self.clamp_to_screen(1, self.mac[0]) as i16;
 
         self.xy_fifo[0] = self.xy_fifo[1];
         self.xy_fifo[1] = self.xy_fifo[2];
@@ -254,15 +263,15 @@ impl Gte {
     }
 
     fn transform_dq(&mut self, h_div_sz: i64) {
-        self.mac[0] = self.f(self.dqb as i64 + self.dqa as i64 * h_div_sz) as i32;
+        self.mac[0] = self.mac0_ovf(self.dqb as i64 + self.dqa as i64 * h_div_sz) as i32;
         self.ir[0] =
-            self.lm_h(((self.dqb as i64 + self.dqa as i64 * h_div_sz) >> 12) as i32) as i16;
+            self.clamp_depth_cue(((self.dqb as i64 + self.dqa as i64 * h_div_sz) >> 12) as i32) as i16;
     }
 
     fn mac_to_ir(&mut self, lm: bool) {
-        self.ir[1] = self.lm_b(0, self.mac[1], lm);
-        self.ir[2] = self.lm_b(1, self.mac[2], lm);
-        self.ir[3] = self.lm_b(2, self.mac[3], lm);
+        self.ir[1] = self.clamp_ir(0, self.mac[1], lm);
+        self.ir[2] = self.clamp_ir(1, self.mac[2], lm);
+        self.ir[3] = self.clamp_ir(2, self.mac[3], lm);
     }
 
     pub(super) fn rtps(&mut self) {
@@ -285,7 +294,7 @@ impl Gte {
     }
 
     pub(super) fn nclip(&mut self) {
-        self.mac[0] = self.f((self.xy_fifo[0].x as i64
+        self.mac[0] = self.mac0_ovf((self.xy_fifo[0].x as i64
             * (self.xy_fifo[1].y as i64 - self.xy_fifo[2].y as i64))
             + (self.xy_fifo[1].x as i64 * (self.xy_fifo[2].y as i64 - self.xy_fifo[0].y as i64))
             + (self.xy_fifo[2].x as i64 * (self.xy_fifo[0].y as i64 - self.xy_fifo[1].y as i64)))
@@ -331,14 +340,14 @@ impl Gte {
     }
 
     pub(super) fn avsz3(&mut self) {
-        self.mac[0] = self.f(self.zsf3 as i64
+        self.mac[0] = self.mac0_ovf(self.zsf3 as i64
             * (self.z_fifo[1] as i64 + self.z_fifo[2] as i64 + self.z_fifo[3] as i64))
             as i32;
         self.otz = self.lm_d(self.mac[0] >> 12, false) as u16;
     }
 
     pub(super) fn avsz4(&mut self) {
-        self.mac[0] = self.f(self.zsf4 as i64
+        self.mac[0] = self.mac0_ovf(self.zsf4 as i64
             * (self.z_fifo[0] as i64
                 + self.z_fifo[1] as i64
                 + self.z_fifo[2] as i64
@@ -349,9 +358,9 @@ impl Gte {
     fn mac_to_rgb_fifo(&mut self) {
         self.rgb_fifo[0] = self.rgb_fifo[1];
         self.rgb_fifo[1] = self.rgb_fifo[2];
-        self.rgb_fifo[2].r = self.lm_c(0, self.mac[1] >> 4);
-        self.rgb_fifo[2].g = self.lm_c(1, self.mac[2] >> 4);
-        self.rgb_fifo[2].b = self.lm_c(2, self.mac[3] >> 4);
+        self.rgb_fifo[2].r = self.clamp_color(0, self.mac[1] >> 4);
+        self.rgb_fifo[2].g = self.clamp_color(1, self.mac[2] >> 4);
+        self.rgb_fifo[2].b = self.clamp_color(2, self.mac[3] >> 4);
         self.rgb_fifo[2].code = self.rgb.code;
     }
 
@@ -439,7 +448,7 @@ impl Gte {
                     i,
                     ((self.fc[i] as i64) << 12) - rgb_temp[i] as i64 * ir_temp[i] as i64,
                 ) >> sf) as i32;
-                let lm_b = self.lm_b(i, self.mac[1 + i], false) as i64;
+                let lm_b = self.clamp_ir(i, self.mac[1 + i], false) as i64;
                 self.mac[1 + i] = (self.a_mv(
                     i,
                     rgb_temp[i] as i64 * ir_temp[i] as i64 + self.ir[0] as i64 * lm_b,
@@ -451,7 +460,7 @@ impl Gte {
                     i,
                     ((self.fc[i] as i64) << 12) - ((rgb_temp[i] as u32) << 12) as i64,
                 ) >> sf) as i32;
-                let lm_b = self.lm_b(i, self.mac[1 + i], false) as i64;
+                let lm_b = self.clamp_ir(i, self.mac[1 + i], false) as i64;
                 self.mac[1 + i] = (self
                     .a_mv(i, ((rgb_temp[i] as i64) << 12) + self.ir[0] as i64 * lm_b)
                     >> sf) as i32;
@@ -560,19 +569,19 @@ impl Gte {
             ((self.fc[2] as i64) << 12) - (((self.ir[3]) as i32) << 12) as u32 as i64,
         ) >> self.sf()) as i32;
 
-        let lm_b = self.lm_b(0, self.mac[1], false) as i64;
+        let lm_b = self.clamp_ir(0, self.mac[1], false) as i64;
         self.mac[1] = self.a_mv(
             0,
             (((self.ir[1] as i64) << 12) + self.ir[0] as i64 * lm_b) >> self.sf(),
         ) as i32;
 
-        let lm_b = self.lm_b(1, self.mac[2], false) as i64;
+        let lm_b = self.clamp_ir(1, self.mac[2], false) as i64;
         self.mac[2] = self.a_mv(
             1,
             (((self.ir[2] as i64) << 12) + self.ir[0] as i64 * lm_b) >> self.sf(),
         ) as i32;
 
-        let lm_b = self.lm_b(2, self.mac[3], false) as i64;
+        let lm_b = self.clamp_ir(2, self.mac[3], false) as i64;
         self.mac[3] = self.a_mv(
             2,
             (((self.ir[3] as i64) << 12) + self.ir[0] as i64 * lm_b) >> self.sf(),

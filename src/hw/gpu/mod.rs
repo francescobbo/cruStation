@@ -65,6 +65,7 @@ pub struct Gpu {
     vertical_res: u16,
     display_top: u16,
     display_left: u16,
+    interlaced_field: bool,
 
     texpage_e1: u32,
 
@@ -90,6 +91,7 @@ impl Gpu {
             vertical_res: 0,
             display_top: 0,
             display_left: 0,
+            interlaced_field: false,
 
             texpage_e1: 0,
 
@@ -190,6 +192,8 @@ impl Gpu {
         if self.remaining_words == 0 {
             let command = self.buffer[0];
             let opcode = command >> 24;
+
+            println!("[GPU] GP0({:02x}): {:08x}", opcode, command);
 
             match opcode as u8 {
                 0x00 | 0x04..=0x1e | 0xe0 | 0xe7..=0xef => self.gp0_00_nop(),
@@ -491,6 +495,11 @@ impl Gpu {
             PsxVertex::from_position_and_color(self.buffer[3], self.buffer[2]),
             PsxVertex::from_position_and_color(self.buffer[5], self.buffer[4]),
         ];
+
+        println!(
+            "[GPU] GP0(30): shaded_triangle, vertices: {:?}",
+            vertices
+        );
 
         self.renderer_tx
             .send(GpuCommand::DrawGouraudTriangle { vertices })
@@ -945,29 +954,38 @@ impl Gpu {
             0x04 => {
                 // println!("[GPU] GP1(4): DMA Direction: {}", arguments & 3);
             }
-            0x05 => {
-                // println!("[GPU] GP1(5): Start of display area {} {}",
+            0x05 => {                    
                 self.display_left = (arguments & 0x3ff) as u16;
                 self.display_top = ((arguments >> 10) & 0x1ff) as u16;
+
+                println!("[GPU] GP1(5): Start of display area {} {}",
+                self.display_left, self.display_top);
 
                 self.renderer_tx
                     .send(GpuCommand::SetDisplayArea {
                         x: self.display_left,
                         y: self.display_top,
                         w: self.horizontal_res,
-                        h: self.vertical_res,
+                        h: self.vertical_res << (if self.interlaced_field { 1 } else { 0 }),
                     })
                     .unwrap();
             }
             0x06 => {
-                // println!("[GPU] GP1(6): Horizontal display range {} {}",
-                // arguments & 0xfff, (arguments >> 12) & 0xfff);
+                println!("[GPU] GP1(6): Horizontal display range {} {}",
+                arguments & 0xfff, (arguments >> 12) & 0xfff);
             }
             0x07 => {
-                // println!("[GPU] GP1(7): Vertical display range {} {}",
-                // arguments & 0x3ff, (arguments >> 10) & 0x3ff);
+                let y1 = (arguments & 0x3ff) as u16;
+                let y2 = ((arguments >> 10) & 0x3ff) as u16;
+
+                println!("[GPU] GP1(7): Vertical display range {} {}", y1, y2);
+                self.vertical_res = (y2 - y1 + 1);
+                println!("[GPU] GP1(7): Vertical display range {}", self.vertical_res);
             }
             0x08 => {
+                println!("[GPU] GP1(8): Set resolution {:08x}",
+                arguments);
+
                 self.gpustat.0 &= !(0x7F_4000);
                 self.gpustat.0 |= (arguments & 0x80) << 7;
                 self.gpustat.0 |= (arguments & 0x40) << 10;
@@ -982,17 +1000,19 @@ impl Gpu {
                     _ => 368,
                 };
 
-                self.vertical_res = if (arguments & 0x40) != 0 { 480 } else { 240 };
+                self.interlaced_field = (arguments & 0x20) != 0;
 
-                // TODO: understand why the BIOS sets 640x240, which is wrong
-                self.vertical_res = 480;
+                println!(
+                    "[GPU] GP1(8): Set resolution to {}x{}",
+                    self.horizontal_res, self.vertical_res << (if self.interlaced_field { 1 } else { 0 })
+                );
 
                 self.renderer_tx
                     .send(GpuCommand::SetDisplayArea {
                         x: self.display_left,
                         y: self.display_top,
                         w: self.horizontal_res,
-                        h: self.vertical_res,
+                        h: self.vertical_res << (if self.interlaced_field { 1 } else { 0 }),
                     })
                     .unwrap();
             }

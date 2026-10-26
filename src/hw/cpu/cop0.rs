@@ -336,14 +336,14 @@ impl Cop0 {
     /// Returns the PC that is expected to handle a given exception
     /// The returned value will depend on the kind of exception and on SR.b22
     pub fn exception_handler(&self, cause: Exception) -> u32 {
-        if self.boot_vectors {
-            if cause == Exception::Breakpoint {
+        if cause == Exception::Breakpoint {
+            if self.boot_vectors {
                 0xbfc0_0140
             } else {
-                0xbfc0_0180
+                0x8000_0040
             }
-        } else if cause == Exception::Breakpoint {
-            0x8000_0040
+        } else if self.boot_vectors {
+            0xbfc0_0180
         } else {
             0x8000_0080
         }

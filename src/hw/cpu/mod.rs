@@ -21,7 +21,8 @@ use icache::InstructionCache;
 use instruction::Instruction;
 use scratchpad::Scratchpad;
 
-use crate::{debug, hw::bus::BusDevice};
+use crate::{hw::bus::BusDevice};
+use crate::debug;
 
 use super::bus::{Bus, CpuCommand};
 

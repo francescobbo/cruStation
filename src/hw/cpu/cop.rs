@@ -45,6 +45,10 @@ impl Cpu {
 
     #[inline(always)]
     pub fn ins_syscall(&mut self) {
+        // println!(
+        //     "Syscall at {:08x}",
+        //     self.pc,
+        // );
         self.exception(Exception::Syscall);
     }
 

@@ -1,5 +1,5 @@
 use crate::hw::bus::{Bus, BusDevice, PsxEventType};
-use crate::Cpu;
+use super::Cpu;
 use bitfield::bitfield;
 use ringbuffer::{AllocRingBuffer, RingBuffer, RingBufferExt, RingBufferRead, RingBufferWrite};
 

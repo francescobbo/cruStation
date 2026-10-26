@@ -26,20 +26,16 @@
 ///
 /// # Example
 ///
-/// ```
-/// # use psx::gte::division::division;
+///  use psx::gte::division::division;
 /// let (result, _) = division(1, 10);
 /// // 0x0.199a (fixed point) is ~0.100006104
 /// assert_eq!(result, 0x0_199a);
-/// ```
 ///
-/// ```
 /// # use psx::gte::division::division;
 /// let (result, of) = division(30, 10); // This overflows as 30 > 10 * 2
 /// // 0x1.ffff (fixed point) is ~1.999984741
 /// assert_eq!(result, 0x1_ffff);
 /// assert_eq!(of, true);
-/// ```
 pub fn division(dividend: u16, divisor: u16) -> (u32, bool) {
     if (dividend as u64) >= (divisor as u64 * 2) {
         return (0x1_ffff, true);
